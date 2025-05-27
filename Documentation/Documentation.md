@@ -4246,7 +4246,338 @@ To offer convenient ways to get the string name or index of an enum value, which
 
 
 
-----------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+## **V. Editor & Developer Tools**
+
+This section covers the tools and extensions provided by ALS to assist developers and animators in using and extending the system within the Unreal Editor. These tools streamline workflows, enable custom animation logic, and help in debugging.
+
+### **A. Animation Modifiers**
+
+#### **Scope**
+
+This subsection details the Animation Modifier classes provided by ALS. Animation Modifiers are editor-time utilities that can be applied to `UAnimSequence` assets to programmatically alter them, such as adding or modifying animation curves.
+
+#### **Purpose**
+
+ALS Animation Modifiers automate repetitive tasks and ensure consistency when preparing animation assets for the ALS system. They primarily focus on creating and setting up the various animation curves that ALS relies on to drive its blending and procedural animation logic. This saves animators and designers significant manual work and reduces the chance of errors.
+
+#### **Key Concepts/Components (Animation Modifier Classes)**
+
+These classes are typically found in the `ALSEditor` module, as they are editor-only tools.
+
+1.  **`UAlsAnimationModifier_CalculateRotationYawSpeed`**
+    *   **Display Name**: "Als Calculate Rotation Yaw Speed Animation Modifier"
+    *   **Purpose**: This modifier analyzes an animation sequence to determine the root bone's rotation yaw speed between frames. It then creates (or overwrites) a float curve named `UAlsConstants::RotationYawSpeedCurveName()` (typically "RotationYawSpeed") on the sequence.
+    *   **Functional Meaning**: The "RotationYawSpeed" curve is used by `UAlsAnimationInstance` during grounded rotation logic (specifically `AAlsCharacter::ApplyRotationYawSpeedAnimationCurve`) to allow animations (like turn-in-place or start/stop transitions) to contribute to the character's actual yaw rotation, effectively mimicking root motion rotation without needing the root bone to be explicitly animated for rotation. Each key on the curve represents the calculated yaw speed from that frame to the next.
+    *   **Key Steps in `OnApply_Implementation`**:
+        *   Checks if the "RotationYawSpeed" curve exists; if so, removes it.
+        *   Adds a new float curve named "RotationYawSpeed".
+        *   Iterates through the animation frames.
+        *   For each frame, it gets the root bone's transform at the current frame (`i-1` or `i`) and the next frame (`i` or `i+1`, depending on `RateScale` direction).
+        *   Calculates the delta in yaw rotation between these two frames.
+        *   Converts this delta yaw to a speed (delta yaw * frame rate * `RateScale`).
+        *   Adds a key to the "RotationYawSpeed" curve at the current frame's time with the calculated speed.
+    *   **Always call `Super::OnApply_Implementation()` when overriding this function in a custom C++ modifier.**
+
+2.  **`UAlsAnimationModifier_CopyCurves`**
+    *   **Display Name**: "Als Copy Curves Animation Modifier"
+    *   **Purpose**: Copies float animation curves from a specified source `UAnimSequence` to the `UAnimSequence` the modifier is applied to.
+    *   **`UPROPERTY` Members**:
+        *   **`SourceSequence` (TSoftObjectPtr<UAnimSequence>)**: A soft object pointer to the animation sequence from which to copy curves.
+            *   **`EditAnywhere, BlueprintReadOnly, Category = "Settings"`**
+        *   **`bCopyAllCurves` (bool)**: If true, all float curves from the `SourceSequence` are copied.
+            *   **`EditAnywhere, BlueprintReadOnly, Category = "Settings"`**
+        *   **`CurveNames` (TArray<FName>)**: If `bCopyAllCurves` is false, only curves with names in this array are copied.
+            *   **`EditAnywhere, BlueprintReadOnly, Category = "Settings", Meta = (EditCondition = "!bCopyAllCurves")`**
+    *   **Functional Meaning**: Useful for transferring existing curve data (e.g., perfectly tuned foot IK curves) from one animation to another similar animation, or from a template animation.
+    *   **Key Steps in `OnApply_Implementation`**:
+        *   Loads the `SourceSequence`.
+        *   If `bCopyAllCurves` is true, iterates through all float curves in the source.
+        *   Otherwise, iterates through the specified `CurveNames`.
+        *   For each curve to copy, it calls the internal `CopyCurve` static function.
+    *   **`CopyCurve(UAnimSequence* SourceSequence, UAnimSequence* TargetSequence, const FName& CurveName)` (static private)**:
+        *   Removes the curve from `TargetSequence` if it already exists.
+        *   Adds a new curve with `CurveName` to `TargetSequence`.
+        *   Gets all float keys (times and values) from the curve in `SourceSequence`.
+        *   Adds these keys to the newly created curve in `TargetSequence`.
+    *   **Always call `Super::OnApply_Implementation()`!**
+
+3.  **`UAlsAnimationModifier_CreateCurves`**
+    *   **Display Name**: "Als Create Curves Animation Modifier"
+    *   **Purpose**: Creates one or more new float animation curves on an animation sequence and populates them with specified keyframe data. This is the primary tool for adding the standard ALS curves (like IK, layering, pose state curves) to animations.
+    *   **`UPROPERTY` Members**:
+        *   **`bOverrideExistingCurves` (bool)**: If true, and a curve to be created already exists, the existing curve will be removed and replaced. If false, existing curves are skipped.
+            *   **`EditAnywhere, BlueprintReadOnly, Category = "Settings"`**
+        *   **`Curves` (TArray<FAlsAnimationCurve>)**: An array defining the curves to create.
+            *   **`EditAnywhere, BlueprintReadOnly, Category = "Settings"`**
+            *   **`FAlsAnimationCurve` (USTRUCT)**:
+                *   `Name` (FName): The name of the curve to create.
+                *   `bAddKeyOnEachFrame` (bool): If true, a key with value `0.0f` (by default, but see next point) is added to every frame of the animation. Useful for curves that need to exist but might be modified later manually or by another process. The default `Value` of `0.0f` for each frame is hardcoded in this specific modifier. If you need other values, you'd use the `Keys` array.
+                *   `Keys` (TArray<FAlsAnimationCurveKey>): An array of keyframes to add to the curve. If `bAddKeyOnEachFrame` is false, these keys define the curve.
+                    *   **`FAlsAnimationCurveKey` (USTRUCT)**:
+                        *   `Frame` (int32): The frame number for this key.
+                        *   `Value` (float): The float value of the curve at this key.
+    *   **Functional Meaning**: This is how you ensure your animations have all the necessary ALS curves. For example, to set up basic foot IK, you'd add entries for `FootLeftIkCurveName()`, `FootRightIkCurveName()`, `FootLeftLockCurveName()`, and `FootRightLockCurveName()`. You would then set their `Keys`. For instance, for `FootLeftIkCurve`, you might set a key at frame 0 with value 0.0, a key where the foot is planted with value 1.0, and another key where the foot lifts off with value 0.0.
+    *   **Default `Curves`**: The modifier comes pre-populated with a default list of commonly used ALS curves (Pose, Feet, general control curves), usually with `bAddKeyOnEachFrame = false` and a single key at frame 0 with value 0.0, acting as a template.
+    *   **Key Steps in `OnApply_Implementation`**:
+        *   Iterates through the `Curves` array.
+        *   For each `FAlsAnimationCurve`:
+            *   Checks if the curve already exists. If it does and `bOverrideExistingCurves` is false, skips it. Otherwise, removes the existing curve.
+            *   Adds a new float curve with `Curve.Name`.
+            *   If `Curve.bAddKeyOnEachFrame` is true, loops through all animation frames and adds a key with value `0` at each frame.
+            *   Else, loops through `Curve.Keys` and adds a key to the animation curve at `Sequence->GetTimeAtFrame(CurveKey.Frame)` with `CurveKey.Value`.
+    *   **Always call `Super::OnApply_Implementation()`!**
+
+4.  **`UAlsAnimationModifier_CreateLayeringCurves`**
+    *   **Display Name**: "Als Create Layering Curves Animation Modifier"
+    *   **Purpose**: A specialized modifier for quickly adding a predefined set of ALS layering curves (e.g., `LayerHead`, `LayerArmLeft`, `LayerSpineSlot`) to an animation sequence, all with a single configurable value.
+    *   **`UPROPERTY` Members**:
+        *   **`bOverrideExistingCurves` (bool)**: Same as in `UAlsAnimationModifier_CreateCurves`.
+        *   **`bAddKeyOnEachFrame` (bool)**: If true, a key is added at every frame with `CurveValue`. If false, only one key is added at frame 0 with `CurveValue`.
+        *   **`CurveValue` (float)**: The float value to set for all the primary layering curves.
+            *   **Example Configuration**: For an upper-body rifle aiming animation, you might set `CurveValue = 1.0`. For a base locomotion cycle that should *not* affect the upper body (expecting an overlay), you might set `CurveValue = 0.0` for upper body related curves in its `CurveNames` list, or more simply, ensure that the animation that *should* control the upper body has those curves set to 1.0.
+        *   **`CurveNames` (TArray<FName>)**: A predefined list of common layering curves.
+        *   **`bAddSlotCurves` (bool)**: If true, also creates/updates "Slot" curves (e.g., `LayerHeadSlotCurveName()`).
+        *   **`SlotCurveValue` (float)**: The value to set for all the slot curves if `bAddSlotCurves` is true.
+            *   **Example Configuration**: `SlotCurveValue = 1.0`. Slot curves typically control whether a montage playing in a specific slot can affect that body part. `1.0` means the slot is "open" for that part in this animation.
+        *   **`SlotCurveNames` (TArray<FName>)**: A predefined list of common slot-related layering curves.
+    *   **Functional Meaning**: Streamlines the process of setting up animations for ALS's layering system. For instance, if you have an animation meant to be a full-body pose that should take full control of layering, you'd apply this modifier with `CurveValue = 1.0` and `SlotCurveValue = 1.0`. If it's a base locomotion that expects overlays, many of these curves might be 0.0 in the base, and 1.0 in the overlay animation.
+    *   **Key Steps in `OnApply_Implementation`**:
+        *   Calls `CreateCurves(Sequence, CurveNames, CurveValue)`.
+        *   If `bAddSlotCurves` is true, calls `CreateCurves(Sequence, SlotCurveNames, SlotCurveValue)`.
+    *   **`CreateCurves(...)` (private helper)**: Similar logic to `UAlsAnimationModifier_CreateCurves`'s loop, but applies a single `Value` to all specified `Names`.
+    *   **Always call `Super::OnApply_Implementation()`!**
+
+#### **How to Use Animation Modifiers**
+
+1.  **Open Animation Sequence**: In the Content Browser, double-click an `UAnimSequence` asset to open it in the Animation Editor.
+2.  **Animation Data Tab**: Go to the "Window" menu and ensure "Animation Data" is checked. This panel usually appears on the right.
+3.  **Add Modifier**: In the "Animation Data" panel, find the "Animation Modifiers" section. Click the "+" (Add) button.
+4.  **Select Modifier**: A dropdown will appear. Choose the ALS Animation Modifier you want to apply (e.g., "Als Create Curves Animation Modifier").
+5.  **Configure Modifier**: The selected modifier will appear in the list with its editable properties (e.g., for `UAlsAnimationModifier_CreateCurves`, you can edit the `Curves` array).
+6.  **Apply Modifier**: Right-click on the modifier instance in the list and select "Apply Modifier".
+7.  **Save Asset**: Save your `UAnimSequence` asset. The changes (e.g., new curves) are now part of the animation.
+
+#### **Adding/Adapting Functionality**
+
+*   **Creating a New Custom Animation Modifier (C++)**:
+    1.  Create a new C++ class inheriting from `UAnimationModifier`. Place it in an Editor module (like `ALSEditor`).
+    2.  Override the `OnApply_Implementation(UAnimSequence* Sequence)` function. **Remember to call `Super::OnApply_Implementation(Sequence);`**.
+    3.  Inside your override, use `UAnimationBlueprintLibrary` functions to manipulate the `Sequence`:
+        *   `UAnimationBlueprintLibrary::AddCurve(Sequence, CurveName, ERawCurveTrackTypes::RCT_Float)`
+        *   `UAnimationBlueprintLibrary::RemoveCurve(Sequence, CurveName)`
+        *   `UAnimationBlueprintLibrary::AddFloatCurveKey(Sequence, CurveName, Time, Value)`
+        *   `UAnimationBlueprintLibrary::GetFloatKeys(Sequence, CurveName, Times, Values)`
+    4.  Expose any necessary parameters as `UPROPERTY(EditAnywhere, ...)` in your modifier's header file.
+*   **Example: Modifier to Set a Specific Curve to Sine Wave**:
+    ```cpp
+    // AlsAnimationModifier_SetSineCurve.h
+    #pragma once
+    #include "AnimationModifier.h"
+    #include "AlsAnimationModifier_SetSineCurve.generated.h"
+
+    UCLASS()
+    class ALSEDITOR_API UAlsAnimationModifier_SetSineCurve : public UAnimationModifier
+    {
+        GENERATED_BODY()
+    protected:
+        UPROPERTY(EditAnywhere, Category = "Settings")
+        FName TargetCurveName{"MySineCurve"};
+        UPROPERTY(EditAnywhere, Category = "Settings")
+        float Frequency = 1.0f; // Cycles per second
+        UPROPERTY(EditAnywhere, Category = "Settings")
+        float Amplitude = 1.0f;
+    public:
+        virtual void OnApply_Implementation(UAnimSequence* Sequence) override;
+    };
+
+    // AlsAnimationModifier_SetSineCurve.cpp
+    #include "Animation/AnimSequence.h" // For UAnimSequence
+    #include "AnimationBlueprintLibrary.h" // For curve functions
+
+    void UAlsAnimationModifier_SetSineCurve::OnApply_Implementation(UAnimSequence* Sequence)
+    {
+        Super::OnApply_Implementation(Sequence);
+        if (!Sequence) return;
+
+        UAnimationBlueprintLibrary::RemoveCurve(Sequence, TargetCurveName, false); // Remove if exists
+        UAnimationBlueprintLibrary::AddCurve(Sequence, TargetCurveName, ERawCurveTrackTypes::RCT_Float, false);
+
+        const float SequenceLength = Sequence->GetPlayLength();
+        const int32 NumFrames = Sequence->GetNumberOfSampledKeys();
+
+        for (int32 FrameIndex = 0; FrameIndex < NumFrames; ++FrameIndex)
+        {
+            const float TimeAtFrame = Sequence->GetTimeAtFrame(FrameIndex);
+            const float SineValue = FMath::Sin(TimeAtFrame * UE_TWO_PI * Frequency) * Amplitude;
+            UAnimationBlueprintLibrary::AddFloatCurveKey(Sequence, TargetCurveName, TimeAtFrame, SineValue);
+        }
+        // Trigger a recompile of the sequence to see changes
+        // Sequence->Modify(); // Handled by applying modifier
+    }
+    ```
+*   **GAS Integration**: Animation Modifiers are editor-time tools. They don't directly interact with GAS at runtime. However, the curves they create *are* used by `UAlsAnimationInstance`, which in turn is influenced by character states that GAS abilities can modify. For example, if a GAS ability makes the character "energized," and you have an "EnergyLevel" curve on animations (perhaps set by a modifier based on some animation property), the animation system could read this curve to make animations play faster or stronger.
+
+
+
+
+
+
+
+---------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### **B. AnimGraph Nodes**
+
+#### **Scope**
+
+This subsection details the custom Animation Graph nodes provided by ALS. These nodes can be used within the AnimGraph of an Animation Blueprint to implement specialized blending logic or access ALS-specific data in a visual way.
+
+#### **Purpose**
+
+Custom AnimGraph nodes extend the capabilities of the Animation Blueprint editor, allowing for:
+*   **Tailored Blending**: Implementing blend logic that is specific to ALS's needs (e.g., blending based on Gameplay Tags).
+*   **Simplified Graphing**: Encapsulating complex logic into a single node, making AnimGraphs cleaner and easier to understand.
+*   **Direct Access to ALS Features**: Providing nodes that directly consume or manipulate ALS-specific states or curve types.
+
+#### **Key Concepts/Components (AnimGraph Node Classes)**
+
+These nodes are typically defined with two classes:
+*   **`FAlsAnimNode_...` (e.g., `FAlsAnimNode_CurvesBlend`)**: The runtime struct (derived from `FAnimNode_Base` or a more specific base like `FAnimNode_BlendListBase`) that performs the actual animation processing on the worker thread. Contains `UPROPERTY` members for inputs (like poses, alpha values) and internal state.
+*   **`UAlsAnimGraphNode_...` (e.g., `UAlsAnimGraphNode_CurvesBlend`)**: The editor-time representation of the node (derived from `UAnimGraphNode_Base`). Handles the visual appearance in the AnimGraph editor, pin creation, and node titles/tooltips. It contains an instance of the runtime node struct.
+
+1.  **`FAlsAnimNode_CurvesBlend` / `UAlsAnimGraphNode_CurvesBlend`**
+    *   **Display Name**: "Blend Curves"
+    *   **Category**: "ALS"
+    *   **Purpose**: Allows blending of animation *curves* from a "Curves Pose" onto a "Source Pose" without affecting the bone transforms of the "Source Pose". This is useful for applying curve data from one animation (like a utility animation that only contains curves) to another.
+    *   **`FAlsAnimNode_CurvesBlend` `UPROPERTY` Members (Runtime Node)**:
+        *   **`SourcePose` (FPoseLink)**: Input pose whose bone transforms will be passed through.
+        *   **`CurvesPose` (FPoseLink)**: Input pose from which animation curves will be taken and blended/applied.
+        *   **`BlendAmount` (float, 0-1, EditAnywhere on GraphNode, exposed as pin by default)**: The alpha for blending curves when `BlendMode` is `BlendByAmount`.
+        *   **`BlendMode` (EAlsCurvesBlendMode enum, EditAnywhere on GraphNode)**: Defines how curves from `CurvesPose` are combined with curves from `SourcePose`.
+            *   `BlendByAmount`: `OutputCurve = SourceCurve * (1-Amount) + CurvesPoseCurve * Amount`.
+            *   `Combine`: `OutputCurve = CurvesPoseCurve` if it exists, else `SourceCurve`. (Overrides `SourceCurve`).
+            *   `CombinePreserved`: `OutputCurve = SourceCurve` if it exists, else `CurvesPoseCurve`. (Does not override `SourceCurve`).
+            *   `UseMaxValue`: `OutputCurve = Max(SourceCurve, CurvesPoseCurve)`.
+            *   `UseMinValue`: `OutputCurve = Min(SourceCurve, CurvesPoseCurve)`.
+            *   `Override`: `OutputCurve = CurvesPoseCurve`. (Ignores `SourceCurve` completely).
+    *   **Functional Meaning**:
+        *   Imagine you have a base locomotion animation. You also have a separate, short animation that *only* contains a curve to make the character blink. You can use "Blend Curves" with `BlendMode = Combine` to take the blink curve from the blink animation and apply it to your locomotion without affecting the movement itself.
+        *   Another use: if `SourcePose` has a base "IKAlpha" curve and `CurvesPose` has a temporary override "IKAlpha_Weapon" curve, you could use `UseMaxValue` to ensure IK is active if either curve says it should be.
+    *   **`Evaluate_AnyThread` Logic**: Evaluates `SourcePose`. If `BlendAmount` is relevant, evaluates `CurvesPose`. Then, based on `BlendMode`, it uses `Output.Curve.Accumulate()`, `Combine()`, `CombinePreserved()`, `UseMaxValue()`, `UseMinValue()`, or `Override()` to merge the curve data from `CurvesPoseContext.Curve` into `Output.Curve`.
+
+2.  **`FAlsAnimNode_GameplayTagsBlend` / `UAlsAnimGraphNode_GameplayTagsBlend`**
+    *   **Display Name**: "Blend Poses by Gameplay Tag"
+    *   **Category**: "ALS"
+    *   **Purpose**: A dynamic blend node that selects one of its input poses based on an active `FGameplayTag`. It's similar to Unreal's "Blend Poses by Enum" or "Blend Poses by Int," but uses Gameplay Tags for selection.
+    *   **`FAlsAnimNode_GameplayTagsBlend` `UPROPERTY` Members (Runtime Node)**:
+        *   **`ActiveTag` (FGameplayTag, EditAnywhere on GraphNode, exposed as pin by default)**: The input Gameplay Tag that determines which pose to activate.
+        *   **`Tags` (TArray<FGameplayTag>, EditAnywhere on GraphNode)**: An array of Gameplay Tags defined in the node's details. Each tag in this array corresponds to an input pose pin on the node.
+        *   **`BlendPose` (TArray<FPoseLink>)**: Inherited from `FAnimNode_BlendListBase`. This array holds the actual input pose links. `BlendPose[0]` is the default. `BlendPose[i+1]` corresponds to `Tags[i]`.
+    *   **`UAlsAnimGraphNode_GameplayTagsBlend` Logic**:
+        *   `PostEditChangeProperty`: If the `Tags` array is changed in the Details panel, it calls `ReconstructNode()` to update the pins.
+        *   `ReallocatePinsDuringReconstruction`: Calls `Node.RefreshPosePins()` on the runtime node, which adds/removes `BlendPose` entries to match the number of `Tags`.
+        *   `CustomizePinData`: Sets the friendly name of the input pose pins to "Default" for the first pin, and the simple tag name (e.g., "Grounded" from `Als.LocomotionMode.Grounded`) for subsequent pins.
+    *   **Functional Meaning**: Allows you to create a switch in your AnimGraph based on Gameplay Tags.
+        *   **Example**:
+            *   Input `ActiveTag`: Connect the character's current `LocomotionMode` tag (from `UAlsAnimationInstance`).
+            *   `Tags` array (in node details):
+                *   Index 0: `Als.LocomotionMode.Grounded`
+                *   Index 1: `Als.LocomotionMode.InAir`
+            *   Pins:
+                *   `Default Pose`: Fallback pose (can be anything, or even an empty pose).
+                *   `"Grounded" Pose`: Connect your grounded locomotion state machine output here.
+                *   `"InAir" Pose`: Connect your in-air locomotion state machine output here.
+            *   The node will output the "Grounded" pose if `ActiveTag` is `Als.LocomotionMode.Grounded`, the "InAir" pose if it's `Als.LocomotionMode.InAir`, and the `Default Pose` otherwise (or if `ActiveTag` is invalid/empty).
+    *   **`GetActiveChildIndex()` Logic (Runtime Node)**: Finds the `ActiveTag` in its internal `Tags` array. Returns the index + 1 (because index 0 is the `Default` pose). If not found or `ActiveTag` is invalid, returns 0.
+
+#### **Adding/Adapting Functionality**
+
+*   **Using Existing Nodes in AnimGraph**:
+    1.  In your Animation Blueprint's AnimGraph, right-click and search for "Blend Curves" or "Blend Poses by Gameplay Tag" under the "ALS" category.
+    2.  Connect pose links and input pins as needed.
+    3.  Configure properties in the Details panel of the selected node (e.g., `BlendMode` for CurvesBlend, `Tags` array for GameplayTagsBlend).
+*   **Creating a New Custom AnimGraph Node (C++)**: This is an advanced task.
+    1.  **Runtime Node (`FMyCustomAnimNode`)**:
+        *   Create a struct inheriting from `FAnimNode_Base` (or a more specific base like `FAnimNode_SkeletalControlBase` if it modifies bones, or `FAnimNode_BlendListBase` if it's a multi-pose blender).
+        *   Add `UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Settings", Meta=(PinShownByDefault))` for input pose links (`FPoseLink`) and other data pins (floats, bools, tags).
+        *   Override virtual functions:
+            *   `Initialize_AnyThread`, `CacheBones_AnyThread`, `Update_AnyThread`, `Evaluate_AnyThread` (for pose generation/blending) or `EvaluateSkeletalControl_AnyThread` (for bone manipulation).
+            *   `GatherDebugData` (optional, for Animation Debugger).
+    2.  **Editor Node (`UMyCustomAnimGraphNode`)**:
+        *   Create a class inheriting from `UAnimGraphNode_Base`.
+        *   Add a `UPROPERTY(EditAnywhere, Category="Settings") FMyCustomAnimNode Node;` member to hold the runtime node instance.
+        *   Override:
+            *   `GetNodeTitle()`, `GetTooltipText()`, `GetNodeCategory()`.
+            *   `Create kilkuPins()` (if you have complex pin setups not handled by `UPROPERTY` meta).
+            *   `CustomizePinData()` (to rename pins).
+            *   `PostEditChangeProperty()` (if changing a property needs to reconstruct pins).
+    3.  Compile. Your new node should appear in the AnimGraph palette.
+*   **GAS Integration**:
+    *   **`FAlsAnimNode_GameplayTagsBlend`**: This is highly useful for GAS.
+        *   **Scenario**: You have different idle animations based on whether a `State.WeaponEquipped` tag or `State.Relaxed` tag is active (granted by GAS abilities/effects).
+        *   **AnimGraph**: Use "Blend Poses by Gameplay Tag".
+            *   Input `ActiveTag`: A variable in your `UAlsAnimationInstance` that you set based on `Character->GetAbilitySystemComponent()->GetActiveGameplayTags().HasTag(MyTag)`.
+            *   `Tags` array: Add `State.WeaponEquipped`, `State.Relaxed`.
+            *   Connect your "Weapon Equipped Idle" pose and "Relaxed Idle" pose to the corresponding pins.
+    *   **`FAlsAnimNode_CurvesBlend`**:
+        *   **Scenario**: A GAS ability applies a temporary effect that should make all IK less effective (e.g., character is "dazed").
+        *   You could have a utility animation that contains only IK-related curves (like `FootLeftIkCurve`) all set to a low value (e.g., 0.2).
+        *   A variable in `UAlsAnimationInstance`, `DazedIKAlpha` (float), is set to 1.0 when a "Dazed" tag is active (from GAS).
+        *   **AnimGraph**:
+            ```
+            BaseLocoPose -> [FAlsAnimNode_CurvesBlend (SourcePose)]
+                                 [Utility_Dazed_IK_Curves_Pose (CurvesPose)]
+                                 BlendAmount = DazedIKAlpha
+                                 BlendMode = UseMinValue (or BlendByAmount carefully)
+                           -> OutputPose
+            ```
+            This would effectively reduce the IK curve values from the base pose if `DazedIKAlpha` is high and the utility pose has lower IK curve values.
+
+#### **Network Synchronization**
+
+*   AnimGraph nodes themselves and their internal runtime structs (`FAlsAnimNode_...`) are **not directly replicated**. They execute locally on each client and the server.
+*   **Consistency**: Their synchronized behavior relies on their *inputs* being synchronized.
+    *   **Pose Inputs (`FPoseLink`)**: The poses fed into these nodes are the result of other nodes or state machines, which are ultimately driven by replicated character state (`AAlsCharacter` Gameplay Tags) or replicated montage states.
+    *   **Data Inputs (Floats, Tags)**: Pins like `BlendAmount` on `FAlsAnimNode_CurvesBlend` or `ActiveTag` on `FAlsAnimNode_GameplayTagsBlend` should be connected to properties within your `UAlsAnimationInstance`. These properties, in turn, should be updated based on the replicated state from `AAlsCharacter` or data derived from GAS (which also has its own replication mechanisms for tags and attributes).
+*   If the inputs are consistent across all machines, the deterministic logic within the AnimGraph nodes will produce visually consistent animation outputs.
+
+#### **Debugging**
+
+*   **Animation Debugger**: This is the primary tool.
+    *   **Node Inspection**: Select your custom ALS AnimGraph node instance in the debugger. You can see the live values of its input pins and internal properties (if exposed).
+    *   **Pose Watch**: You can "watch" the bone transforms of poses flowing into and out of these nodes to see exactly how they are being blended or modified.
+    *   **Curve Watch**: If debugging `FAlsAnimNode_CurvesBlend`, you can monitor the animation curves on the input and output poses.
+*   **Visual Graph**: Set breakpoints on nodes in the Animation Blueprint editor to pause execution and inspect pin values.
+*   **`UAlsAnimationInstance` Details Panel**: Check the values of the `UAlsAnimationInstance` properties that are feeding into these AnimGraph nodes.
+*   **`ShowDebug Als.State` / `ShowDebug Als.Curves`**: Useful to see the high-level character state and curve values that might be inputs to these nodes or that these nodes are intended to affect.
 
 
 
@@ -4265,6 +4596,926 @@ To offer convenient ways to get the string name or index of an enum value, which
 
 
 
+-----------------------------------------------------------------------------
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+Okay, let's proceed with practical examples for Animation Notifies, Animation Notify States, and Control Rig / RigVM Units within the ALS framework, keeping GAS integration in mind.
+
+---
+
+## **V-C. Animation Notifies**
+
+#### **Scope**
+
+This subsection covers the custom `UAnimNotify` classes provided by ALS. Animation Notifies are events that can be placed on an animation timeline (in `UAnimSequence` or `UAnimMontage` assets) to trigger C++ or Blueprint logic at a specific point during the animation's playback.
+
+#### **Purpose**
+
+ALS Animation Notifies are used to:
+*   Synchronize gameplay events with animations (e.g., spawning footstep effects when a foot touches the ground).
+*   Trigger non-animation related game logic from an animation (e.g., causing a camera shake during an impact animation).
+
+#### **Key Concepts/Components (AnimNotify Classes)**
+
+1.  **`UAlsAnimNotify_CameraShake`**
+    *   **Display Name**: "Als Camera Shake Animation Notify"
+    *   **Purpose**: Triggers a specified `UCameraShakeBase` class when the notify is encountered in an animation.
+    *   **`UPROPERTY` Members**:
+        *   **`CameraShakeClass` (TSubclassOf<UCameraShakeBase>)**: The class of camera shake to play.
+            *   **`EditAnywhere, BlueprintReadOnly, Category = "Settings"`**
+        *   **`CameraShakeScale` (float)**: A multiplier for the intensity of the camera shake.
+            *   **`EditAnywhere, BlueprintReadOnly, Category = "Settings", Meta = (ClampMin = 0, ForceUnits = "x")`**
+    *   **Functional Meaning**: Allows animators to easily add screen shake effects to animations (e.g., during a heavy landing, explosion impact, or a powerful attack) directly on the animation timeline.
+    *   **`Notify(USkeletalMeshComponent* Mesh, ...)` Logic**:
+        *   Gets the `APawn` owner of the `Mesh`.
+        *   Gets the `APlayerController` controlling the pawn.
+        *   Gets the `PlayerCameraManager` from the controller.
+        *   If valid, calls `PlayerCameraManager->StartCameraShake(CameraShakeClass, CameraShakeScale)`.
+        *   **Note**: `bShouldFireInEditor` is `false` (won't play in Persona editor preview), `bTriggerOnDedicatedServer` is `false` (camera shakes are client-side effects).
+    *   **Always call `Super::Notify()` when overriding this function in a custom C++ notify.**
+
+2.  **`UAlsAnimNotify_FootstepEffects`**
+    *   **Display Name**: "Als Footstep Effects Animation Notify"
+    *   **Purpose**: Spawns footstep-related visual and audio effects (sound, decal, particle system) based on the surface type the character's foot lands on.
+    *   **`UPROPERTY` Members**:
+        *   **`FootstepEffectsSettings` (TObjectPtr<UAlsFootstepEffectsSettings>)**: A pointer to a `UAlsFootstepEffectsSettings` Data Asset that defines all the effects for different surface types.
+            *   **`EditAnywhere, BlueprintReadOnly, Category = "Settings"`**
+        *   **`FootBone` (EAlsFootBone enum: Left, Right)**: Specifies which foot this notify is for.
+            *   **`EditAnywhere, BlueprintReadOnly, Category = "Settings"`**
+        *   **`bSkipEffectsWhenInAir` (bool)**: If true, effects won't spawn if the character is in `LocomotionMode.InAir`.
+        *   **`bSpawnSound`, `SoundVolumeMultiplier`, `SoundPitchMultiplier`, `SoundType` (EAlsFootstepSoundType), `bIgnoreFootstepSoundBlockCurve`**: Settings for spawning sound. `SoundType` (Step, WalkRun, Land) can be used by the sound cue to play different variations.
+        *   **`bSpawnDecal`**: Settings for spawning decals.
+        *   **`bSpawnParticleSystem`**: Settings for spawning Niagara particle effects.
+    *   **Functional Meaning**: Placed on walk/run/jump land animations at the moment a foot makes contact with the ground. It performs a trace downwards from the specified foot bone to detect the surface type and then spawns the configured effects.
+    *   **`Notify(USkeletalMeshComponent* Mesh, ...)` Logic**:
+        1.  Checks if effects should be skipped (e.g., `bSkipEffectsWhenInAir`).
+        2.  Determines foot bone name (`UAlsConstants::FootLeftBoneName()` or `...RightBoneName()`).
+        3.  Gets foot transform and configured Z-axis for tracing.
+        4.  Performs a line trace downwards from the foot to find the ground and its `UPhysicalMaterial`.
+        5.  Determines `SurfaceType` (from `EPhysicalSurface`) from the hit physical material.
+        6.  Finds the corresponding `FAlsFootstepEffectSettings` from the `FootstepEffectsSettings` Data Asset for that `SurfaceType`.
+        7.  Calculates footstep location and rotation based on impact normal.
+        8.  Calls helper functions `SpawnSound()`, `SpawnDecal()`, `SpawnParticleSystem()` based on the bool flags and retrieved settings.
+        *   `SpawnSound`: Plays sound using `UGameplayStatics::PlaySoundAtLocation` or `SpawnSoundAttached`. Considers `FootstepSoundBlockCurveName()`.
+        *   `SpawnDecal`: Spawns decal using `UGameplayStatics::SpawnDecalAtLocation` or `SpawnDecalAttached`. Considers `DecalSpawnAngleThresholdCos`.
+        *   `SpawnParticleSystem`: Spawns Niagara system using `UNiagaraFunctionLibrary::SpawnSystemAtLocation` or `SpawnSystemAttached`.
+    *   **`UAlsFootstepEffectsSettings` (Data Asset)**:
+        *   Contains trace parameters (`SurfaceTraceChannel`, `SurfaceTraceDistance`), foot axis definitions, and a `TMap<TEnumAsByte<EPhysicalSurface>, FAlsFootstepEffectSettings> Effects`.
+        *   Each `FAlsFootstepEffectSettings` entry has `Sound`, `Decal`, and `ParticleSystem` sub-structs defining assets and spawn parameters.
+    *   **Always call `Super::Notify()`!**
+
+3.  **`UAlsAnimNotify_SetGroundedEntryMode`**
+    *   **Display Name**: "Als Set Grounded Entry Mode Animation Notify"
+    *   **Purpose**: Sets the `GroundedEntryMode` Gameplay Tag on the `UAlsAnimationInstance`.
+    *   **`UPROPERTY` Members**:
+        *   **`GroundedEntryMode` (FGameplayTag)**: The tag to set (e.g., `Als.GroundedEntryMode.FromRoll`).
+            *   **`EditAnywhere, BlueprintReadOnly, Category = "Settings"`**
+    *   **Functional Meaning**: Used at the end of an action montage (like a roll) that transitions the character into a grounded state. This tag allows the grounded state machine in the AnimBP to play a specific entry/settle animation.
+    *   **`Notify(USkeletalMeshComponent* Mesh, ...)` Logic**:
+        *   Casts `Mesh->GetAnimInstance()` to `UAlsAnimationInstance`.
+        *   If valid, calls `AnimationInstance->SetGroundedEntryMode(GroundedEntryMode)`.
+    *   **Always call `Super::Notify()`!**
+
+#### **How to Use Animation Notifies**
+
+1.  **Open Animation Sequence/Montage**: In the Animation Editor.
+2.  **Notifies Track**: Find the "Notifies" track below the animation timeline. If not visible, right-click on the track area -> Add Notify Track.
+3.  **Add Notify**: Right-click on the desired frame in the Notifies track -> Add Notify... -> Select the ALS Notify (e.g., "Als Footstep Effects Animation Notify").
+4.  **Configure Notify**: Select the newly added notify instance on the timeline. Its properties (e.g., `FootBone` for footsteps, `CameraShakeClass` for camera shake) will appear in the Details panel. Configure them as needed.
+    *   **Footsteps Example**:
+        *   Place `Als Footstep Effects Animation Notify` at the frame where the left foot hits the ground. Set `FootBone` to `Left`. Assign your `DA_AlsFootstepEffectsSettings` asset.
+        *   Place another one for the right foot, setting `FootBone` to `Right`.
+    *   **Camera Shake Example**:
+        *   Place `Als Camera Shake Animation Notify` on a landing animation at the impact frame. Select a `CameraShakeClass` (e.g., `CS_LandHeavy`) and set a `CameraShakeScale`.
+    *   **Grounded Entry Example**:
+        *   At the end of your Roll montage, add `Als Set Grounded Entry Mode Animation Notify`. Set `GroundedEntryMode` to `Als.GroundedEntryMode.FromRoll`.
+5.  **Save Asset**.
+
+#### **Adding/Adapting Functionality (C++ & Blueprint Examples)**
+
+**1. Creating a New Custom AnimNotify (e.g., "SpawnImpactDecalAtLocation")**
+
+*   **Scenario**: You want a generic notify to spawn a decal (like a bullet hole) at a specific bone/socket location when an animation hits a certain point.
+*   **C++ Implementation**:
+    1.  Create a new C++ class inheriting from `UAnimNotify`.
+        ```cpp
+        // AlsAnimNotify_SpawnDecalAtSocket.h
+        #pragma once
+        #include "Animation/AnimNotifies/AnimNotify.h"
+        #include "AlsAnimNotify_SpawnDecalAtSocket.generated.h"
+
+        class UMaterialInterface;
+
+        UCLASS(DisplayName = "Als Spawn Decal at Socket")
+        class ALSEDITOR_API UAlsAnimNotify_SpawnDecalAtSocket : public UAnimNotify // Or your game module if not editor
+        {
+            GENERATED_BODY()
+        protected:
+            UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings")
+            FName SocketName; // Socket on the mesh where the decal should originate
+
+            UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings")
+            TSoftObjectPtr<UMaterialInterface> DecalMaterial;
+
+            UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings", Meta = (AllowPreserveRatio))
+            FVector DecalSize{10.0f, 10.0f, 10.0f};
+
+            UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings", Meta = (ClampMin = 0, ForceUnits = "s"))
+            float DecalLifetime{5.0f};
+        public:
+            UAlsAnimNotify_SpawnDecalAtSocket();
+            virtual FString GetNotifyName_Implementation() const override;
+            virtual void Notify(USkeletalMeshComponent* Mesh, UAnimSequenceBase* Sequence, const FAnimNotifyEventReference& NotifyEventReference) override;
+        };
+
+        // AlsAnimNotify_SpawnDecalAtSocket.cpp
+        #include "Kismet/GameplayStatics.h"
+        #include "Materials/MaterialInterface.h"
+        #include "Components/DecalComponent.h"
+        #include "Components/SkeletalMeshComponent.h" // For Mesh->GetSocketLocation
+
+        UAlsAnimNotify_SpawnDecalAtSocket::UAlsAnimNotify_SpawnDecalAtSocket() { bShouldFireInEditor = false; }
+        FString UAlsAnimNotify_SpawnDecalAtSocket::GetNotifyName_Implementation() const { return TEXT("Als Spawn Decal at Socket"); }
+
+        void UAlsAnimNotify_SpawnDecalAtSocket::Notify(USkeletalMeshComponent* Mesh, UAnimSequenceBase* Sequence, const FAnimNotifyEventReference& NotifyEventReference)
+        {
+            Super::Notify(Mesh, Sequence, NotifyEventReference); // Important!
+
+            if (!Mesh || !DecalMaterial.LoadSynchronous()) return;
+
+            FVector SpawnLocation = Mesh->GetSocketLocation(SocketName);
+            FRotator SpawnRotation = Mesh->GetSocketRotation(SocketName); // Or calculate based on impact normal if it's a hit
+
+            // For impact decals, you'd typically trace from socket forward and use hit location/normal
+            // For simplicity here, just spawning at socket with socket rotation
+            UDecalComponent* Decal = UGameplayStatics::SpawnDecalAtLocation(Mesh->GetWorld(), DecalMaterial.Get(), DecalSize, SpawnLocation, SpawnRotation, DecalLifetime);
+            // if (Decal) { /* Further setup */ }
+        }
+        ```
+*   **Usage**: Add this notify to an animation (e.g., a weapon firing animation, place it at `SocketName`="MuzzleFlashSocket"). Configure `DecalMaterial`, `DecalSize`, etc.
+
+**GAS Integration**:
+*   **Sending Gameplay Events**: An `AnimNotify` (Blueprint or C++) can send a `GameplayEvent` to the character's `AbilitySystemComponent`.
+    *   **Example**: In `AM_HeavyAttack` montage, at the impact frame, add a Blueprint AnimNotify `AN_MeleeImpact`.
+    *   **`AN_MeleeImpact` Blueprint**: Get Owning Actor -> Cast to `AAlsCharacter` -> Get AbilitySystemComponent -> `Send Gameplay Event to Actor`. Event Tag: `Event.MeleeHit`. Payload: (Optional) Hit location, hit actor.
+    *   **`GA_HeavyAttack`**: Use an `AbilityTask_WaitGameplayEvent` node listening for `Event.MeleeHit`. When the event is received, the ability performs damage calculation and application.
+*   **Triggering Abilities**: An `AnimNotify` can call `TryActivateAbilityByTag` or `TryActivateAbilityByClass` on the character's ASC.
+    *   **Example**: An `AnimNotify` "AN_ComboWindowOpen" at the end of an attack animation could attempt to activate the next attack ability in a combo chain if input is buffered.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### **V-D. Animation Notify States**
+
+#### **Scope**
+
+This subsection details the custom `UAnimNotifyState` classes provided by ALS. AnimNotifyStates define a region within an animation timeline, triggering logic on `NotifyBegin`, `NotifyEnd`, and optionally `NotifyTick` (if it's a Branching Point).
+
+#### **Purpose**
+
+ALS AnimNotifyStates are used to:
+*   Manage character states for the duration of an animation segment (e.g., setting `LocomotionAction`).
+*   Allow animations to be blended out early based on gameplay conditions.
+*   Modify character properties (like root motion scale) for a specific animation duration.
+
+#### **Key Concepts/Components (AnimNotifyState Classes)**
+
+1.  **`UAlsAnimNotifyState_EarlyBlendOut`**
+    *   **Display Name**: "Als Early Blend Out Animation Notify State"
+    *   **Purpose**: Allows an animation montage to be interrupted and blended out prematurely if certain character state conditions are met.
+    *   **`UPROPERTY` Members**:
+        *   `BlendOutDuration` (float, seconds): How long the blend out should take if interrupted.
+        *   `bCheckInput` (bool): If true, montage blends out if character receives movement input.
+        *   `bCheckLocomotionMode`, `LocomotionModeEquals` (FGameplayTag): If `bCheckLocomotionMode` is true, blends out if character's `LocomotionMode` becomes equal to `LocomotionModeEquals`.
+        *   `bCheckRotationMode`, `RotationModeEquals` (FGameplayTag): Similar check for `RotationMode`.
+        *   `bCheckStance`, `StanceEquals` (FGameplayTag): Similar check for `Stance`.
+    *   **Functional Meaning**: Essential for making long actions (like "getting up" or a channeled ability played via montage) feel responsive. If the player provides input while getting up, this notify state can stop the get up montage and let the character move.
+    *   **`BranchingPointNotifyTick(...)` Logic**:
+        *   This function is called every frame while the notify state is active because `bIsNativeBranchingPoint = true`.
+        *   It checks the configured conditions against the `AAlsCharacter`'s current state.
+        *   If any condition is met, it gets the `MontageInstance` and calls `MontageInstance->Stop()` with the specified `BlendOutDuration`.
+    *   **`CanBePlaced(UAnimSequenceBase* Sequence) const`**: Ensures this notify state can only be placed on `UAnimMontage` assets.
+    *   **Always call `Super::BranchingPointNotifyTick()` when overriding.**
+
+2.  **`UAlsAnimNotifyState_SetLocomotionAction`**
+    *   **Display Name**: "Als Set Locomotion Action Animation Notify State"
+    *   **Purpose**: Sets the `AAlsCharacter::LocomotionAction` Gameplay Tag for the duration of this notify state. Automatically clears the tag when the notify state ends.
+    *   **`UPROPERTY` Members**:
+        *   `LocomotionAction` (FGameplayTag): The Gameplay Tag to set on the character.
+    *   **Functional Meaning**: This is a cornerstone of integrating custom actions played via montages with the ALS state system. For example, a "HeavyAttack" montage would have this notify state spanning its duration, setting `LocomotionAction` to `Als.LocomotionAction.Attack` (a custom tag you define). The `UAlsAnimationInstance` then uses this tag to blend into appropriate attacking animation states or layers.
+    *   **`NotifyBegin(...)` Logic**: Gets `AAlsCharacter` and calls `Character->SetLocomotionAction(LocomotionAction)`.
+    *   **`NotifyEnd(...)` Logic**: Gets `AAlsCharacter`. If `Character->GetLocomotionAction()` is still equal to *this notify's* `LocomotionAction`, it clears it by calling `Character->SetLocomotionAction(FGameplayTag::EmptyTag)`. This prevents accidentally clearing an action set by a different, overlapping notify state.
+    *   **Always call `Super::NotifyBegin()` and `Super::NotifyEnd()`!**
+
+3.  **`UAlsAnimNotifyState_SetRootMotionScale`**
+    *   **Display Name**: "Als Set Root Motion Scale Animation Notify State"
+    *   **Purpose**: Temporarily scales the character's root motion translation for the duration of the notify state.
+    *   **`UPROPERTY` Members**:
+        *   `TranslationScale` (float): The scale factor to apply to root motion translation (e.g., `0.5` for half speed, `2.0` for double speed).
+    *   **Functional Meaning**: Useful for fine-tuning the distance covered by a root motion animation without re-authoring the animation itself. For example, if a roll animation covers too much distance, you can add this notify state with `TranslationScale = 0.8`.
+    *   **`NotifyBegin(...)` Logic**: Gets `ACharacter` and calls `Character->SetAnimRootMotionTranslationScale(TranslationScale)`. Only applies if `LocalRole >= ROLE_AutonomousProxy`.
+    *   **`NotifyEnd(...)` Logic**: Gets `ACharacter`. If the current scale still matches `TranslationScale`, it resets it to `1.0f`. Warns if the scale was changed by something else externally.
+    *   **Always call `Super::NotifyBegin()` and `Super::NotifyEnd()`!**
+
+#### **How to Use Animation Notify States**
+
+1.  **Open Animation Sequence/Montage**.
+2.  **Notifies Track**: Right-click -> Add Notify State... -> Select the ALS Notify State (e.g., "Als Set Locomotion Action Animation Notify State").
+3.  **Adjust Duration**: Drag the ends of the notify state instance on the timeline to cover the desired animation segment.
+4.  **Configure**: Select the notify state instance. Its properties will appear in the Details panel.
+    *   **Set Locomotion Action Example**:
+        *   On your `AM_Roll` montage, add `Als Set Locomotion Action`. Set its `LocomotionAction` property to `Als.LocomotionAction.Rolling`. Drag its duration to cover the entire roll.
+    *   **Early Blend Out Example**:
+        *   On your `AM_GetUpFromBack` montage, add `Als Early Blend Out`. Configure its conditions (e.g., `bCheckInput = true`). If the player moves while getting up, the montage will stop.
+    *   **Root Motion Scale Example**:
+        *   On an attack montage that moves too far, add `Als Set Root Motion Scale`. Set `TranslationScale` to `0.75`.
+5.  **Save Asset**.
+
+#### **Adding/Adapting Functionality (C++ & Blueprint Examples)**
+
+**1. Creating a New Custom AnimNotifyState (e.g., "ApplyGameplayEffectForDuration")**
+
+*   **Scenario**: You want to apply a `GameplayEffect` (like a temporary speed boost or damage resistance) for the duration of a specific part of an animation.
+*   **C++ Implementation**:
+    1.  Create a new C++ class inheriting from `UAnimNotifyState`.
+        ```cpp
+        // AlsAnimNotifyState_ApplyEffect.h
+        #pragma once
+        #include "Animation/AnimNotifies/AnimNotifyState.h"
+        #include "GameplayEffect.h" // For TSubclassOf<UGameplayEffect>
+        #include "AlsAnimNotifyState_ApplyEffect.generated.h"
+
+        UCLASS(DisplayName = "Als Apply GameplayEffect for Duration")
+        class ALSEDITOR_API UAlsAnimNotifyState_ApplyEffect : public UAnimNotifyState
+        {
+            GENERATED_BODY()
+        protected:
+            UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings")
+            TSubclassOf<UGameplayEffect> EffectToApply;
+
+            // Store the active GE handle to remove it correctly
+            UPROPERTY(Transient)
+            FActiveGameplayEffectHandle AppliedEffectHandle;
+        public:
+            UAlsAnimNotifyState_ApplyEffect();
+            virtual FString GetNotifyName_Implementation() const override;
+            virtual void NotifyBegin(USkeletalMeshComponent* Mesh, UAnimSequenceBase* Sequence, float TotalDuration, const FAnimNotifyEventReference& NotifyEventReference) override;
+            virtual void NotifyEnd(USkeletalMeshComponent* Mesh, UAnimSequenceBase* Sequence, const FAnimNotifyEventReference& NotifyEventReference) override;
+        };
+
+        // AlsAnimNotifyState_ApplyEffect.cpp
+        #include "AbilitySystemComponent.h"
+        #include "AlsCharacter.h" // Or your base character that has ASC
+
+        UAlsAnimNotifyState_ApplyEffect::UAlsAnimNotifyState_ApplyEffect() {}
+        FString UAlsAnimNotifyState_ApplyEffect::GetNotifyName_Implementation() const { return TEXT("Als Apply GE for Duration"); }
+
+        void UAlsAnimNotifyState_ApplyEffect::NotifyBegin(USkeletalMeshComponent* Mesh, UAnimSequenceBase* Sequence, float TotalDuration, const FAnimNotifyEventReference& NotifyEventReference)
+        {
+            Super::NotifyBegin(Mesh, Sequence, TotalDuration, NotifyEventReference);
+            if (!EffectToApply || !Mesh || !Mesh->GetOwner()) return;
+
+            AActor* OwnerActor = Mesh->GetOwner();
+            UAbilitySystemComponent* ASC = OwnerActor->FindComponentByClass<UAbilitySystemComponent>();
+            // AAlsCharacter* AlsChar = Cast<AAlsCharacter>(OwnerActor); // If ASC is on AAlsCharacter
+            // UAbilitySystemComponent* ASC = AlsChar ? AlsChar->GetAbilitySystemComponent() : nullptr;
+
+
+            if (ASC)
+            {
+                FGameplayEffectContextHandle ContextHandle = ASC->MakeEffectContext();
+                ContextHandle.AddSourceObject(OwnerActor); // Optional: set source object
+                FGameplayEffectSpecHandle SpecHandle = ASC->MakeOutgoingSpec(EffectToApply, 1.0f, ContextHandle);
+
+                if (SpecHandle.IsValid())
+                {
+                    AppliedEffectHandle = ASC->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+                }
+            }
+        }
+
+        void UAlsAnimNotifyState_ApplyEffect::NotifyEnd(USkeletalMeshComponent* Mesh, UAnimSequenceBase* Sequence, const FAnimNotifyEventReference& NotifyEventReference)
+        {
+            Super::NotifyEnd(Mesh, Sequence, NotifyEventReference);
+            if (!Mesh || !Mesh->GetOwner() || !AppliedEffectHandle.IsValid()) return;
+
+            AActor* OwnerActor = Mesh->GetOwner();
+            UAbilitySystemComponent* ASC = OwnerActor->FindComponentByClass<UAbilitySystemComponent>();
+            // AAlsCharacter* AlsChar = Cast<AAlsCharacter>(OwnerActor);
+            // UAbilitySystemComponent* ASC = AlsChar ? AlsChar->GetAbilitySystemComponent() : nullptr;
+
+            if (ASC)
+            {
+                ASC->RemoveActiveGameplayEffect(AppliedEffectHandle);
+            }
+            AppliedEffectHandle.Invalidate(); // Clear the handle
+        }
+        ```
+*   **Usage**: Place this notify state on a montage (e.g., a "power-up" animation). Select your `GameplayEffect` (e.g., `GE_SpeedBoost`) in the notify's details. For the duration of the notify state, the character will have the speed boost.
+
+**GAS Integration**:
+*   **`UAlsAnimNotifyState_SetLocomotionAction`**: As described, this is key for GAS abilities that play montages to correctly inform the ALS animation system about the character's action state. A `GA_Attack` playing `AM_Attack` would rely on this notify within `AM_Attack` to set `LocomotionAction = Als.LocomotionAction.Attack`.
+*   **`UAlsAnimNotifyState_EarlyBlendOut`**: GAS abilities playing long montages (e.g., a channeled spell) can use this. If the ability is cancelled (e.g., by `AbilitySystemComponent->CancelAbility`), the montage might stop. If the character is stunned (another ability applies a "Stun" tag), this notify state can check for the "Stun" tag via `bCheckCharacterTags` (a hypothetical extension to the notify) and blend out the channeled spell animation.
+*   **Custom Notify States for GAS**: Your custom notify states (like `AlsAnimNotifyState_ApplyEffect`) are powerful tools for abilities to manage timed effects that are perfectly synchronized with animation segments.
+
+
+
+
+
+
+
+
+
+
+-------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+### **V-E. Control Rig / RigVM Units**
+
+#### **Scope**
+
+This subsection details the custom Control Rig units (`FRigUnit_...`) provided by ALS and how they are used within a Control Rig graph (typically `CR_Als_Character`) to achieve procedural animation adjustments, primarily for Foot IK and Hand IK Retargeting.
+
+#### **Purpose**
+
+Control Rig allows for graph-based procedural animation and rigging directly within Unreal Engine. ALS leverages it for:
+*   **Dynamic Foot Placement (IK)**: Adjusting foot and leg bone transforms to make feet conform to uneven terrain.
+*   **Hand IK Retargeting**: Adjusting hand positions to correctly align with props or weapon attachments, especially when animations might not perfectly match.
+*   **Procedural Spine/Pelvis Adjustments**: Modifying spine and pelvis bones for aiming or other procedural effects.
+*   **Extensibility**: Providing a framework where users can add more complex procedural animation behaviors.
+
+#### **Key Concepts/Components (RigVM Units & Control Rig Graph)**
+
+1.  **Control Rig Asset (`CR_Als_Character`)**:
+    *   This is an asset in your project that defines a Control Rig graph. It's assigned to the character's Skeletal Mesh Component.
+    *   The AnimGraph in `ABP_AlsCharacter` has a "Control Rig" node that executes this graph, feeding it pose data and input parameters.
+
+2.  **`FAlsControlRigInput` (USTRUCT in `UAlsAnimationInstance`)**:
+    *   **Purpose**: This struct is prepared by `UAlsAnimationInstance::GetControlRigInput()` and passed as the primary input to the `CR_Als_Character` graph.
+    *   **Key Members**: `bUseHandIkBones`, `bUseFootIkBones`, `bFootOffsetAllowed`, `VelocityBlendForwardAmount`, `VelocityBlendBackwardAmount`, `FootLeftLocation`, `FootLeftRotation`, `FootRightLocation`, `FootRightRotation`, `SpineYawAngle`.
+    *   **Functional Meaning**: It provides Control Rig with all the necessary real-time data from the animation instance to perform its calculations (e.g., where the animation *wants* the feet to be, whether IK is allowed, how much the spine should twist).
+
+3.  **ALS RigVM Units (C++ Structs deriving from `FRigUnitMutable` or `FRigUnit`)**:
+    These are the custom nodes you can use within the Control Rig editor.
+
+    *   **`FAlsRigUnit_FootOffsetTrace`**:
+        *   **Display Name**: "Foot Offset Trace"
+        *   **Purpose**: Performs a line trace downwards from the animated foot position to find the actual ground geometry.
+        *   **Inputs**: `FootTargetLocation` (from `FAlsControlRigInput`), `TraceChannel`, `TraceDistanceUpward`/`Downward`, `WalkableFloorAngle`, `FootHeight`, `bEnabled`, `bDrawDebug`.
+        *   **Outputs**: `OffsetLocationZ` (the vertical distance needed to move the foot to hit the ground), `OffsetNormal` (the surface normal at the hit point).
+        *   **Functional Meaning**: This is the "sensing" part of foot IK. It figures out where the ground is relative to the animated foot.
+
+    *   **`FAlsRigUnit_ApplyFootOffsetLocation`**:
+        *   **Display Name**: "Apply Foot Offset Location"
+        *   **Purpose**: Takes the `OffsetLocationZ` from the trace and other parameters to calculate and apply a smoothed and constrained vertical offset to the foot bone's location.
+        *   **Inputs**: `PelvisItem`, `ThighItem` (for leg length/stretch calculations), `FootTargetLocation`, `FootOffsetLocationZ` (from trace), `PelvisOffset` (how much pelvis IK has lowered the pelvis), `LegLength`, `MinPelvisToFootDistanceZ`, `MaxLegStretchRatio`, interpolation parameters (`OffsetInterpolationFrequency`, etc.).
+        *   **Output**: `FootLocation` (the new, IK-adjusted foot location).
+        *   **FunctionalMeaning**: This unit applies the vertical correction. The spring dynamics make the foot settle naturally. Constraints prevent the leg from overstretching or the foot from going too high relative to the pelvis. It ensures the foot bone is placed at the correct height.
+
+    *   **`FAlsRigUnit_ApplyFootOffsetRotation`**:
+        *   **Display Name**: "Apply Foot Offset Rotation"
+        *   **Purpose**: Takes the `OffsetNormal` from the trace and adjusts the foot bone's rotation to align with the ground slope, respecting anatomical joint limits.
+        *   **Inputs**: `CalfItem` (for local space calculations), `FootTargetRotation` (from `FAlsControlRigInput`), `FootOffsetNormal` (from trace), `LimitOffset` (a base offset for the foot, e.g., slight toe-up), `Swing1/2LimitAngle`, `TwistLimitAngle`, `OffsetInterpolationSpeed`.
+        *   **Output**: `FootRotation` (the new, IK-adjusted foot rotation).
+        *   **Functional Meaning**: This unit orients the foot to match the ground. The swing/twist limits prevent the ankle from bending in unnatural ways.
+
+    *   **`FAlsRigUnit_HandIkRetargeting`**:
+        *   **Display Name**: "Hand Ik Retargeting"
+        *   **Purpose**: Adjusts the positions of a set of "ItemsToMove" (typically spine bones, clavicles, and the IK hand itself) based on the difference between an animated hand position and a target IK hand position. It can favor either the left or right hand's IK target.
+        *   **Inputs**: `LeftHandItem`, `LeftHandIkItem`, `RightHandItem`, `RightHandIkItem`, `ItemsToMove` (array of bones), `RetargetingWeight` (0 for left, 1 for right, 0.5 for average), `Weight` (overall alpha), `bPropagateToChildren`.
+        *   **Functional Meaning**: Useful for two-handed weapon holding. If the weapon is an attachment and has `ik_hand_gun` sockets, this unit can adjust the character's arms and spine so the animated hands (`Left/RightHandItem`) align better with these IK sockets (`Left/RightHandIkItem`), making the character grip the weapon correctly even if the base animation isn't perfectly matched.
+        *   **Logic**: Calculates an `RetargetingOffset` vector (the difference between where the animation *places* the hand(s) and where the IK target *wants* them to be). This offset is then applied to all `ItemsToMove`.
+
+    *   **`FAlsRigUnit_ChainLength`**:
+        *   **Display Name**: "Chain Length"
+        *   **Purpose**: Calculates the current or initial length of a kinematic chain between two bones (Ancestor and Descendant).
+        *   **Functional Meaning**: Can be used for things like leg length calculation (for `FAlsRigUnit_ApplyFootOffsetLocation`) or for other procedural effects that depend on bone chain distances.
+
+    *   **`FAlsRigUnit_DistributeRotationSimple`**:
+        *   **Display Name**: "Distribute Rotation Simple"
+        *   **Purpose**: Takes an input `Rotation` (FQuat) and distributes it evenly among an array of `Items` (bones).
+        *   **Functional Meaning**: Can be used to procedurally twist a chain of spine bones. For example, if `FAlsControlRigInput::SpineYawAngle` is 30 degrees, this unit could apply 10 degrees of yaw to `spine_01`, `spine_02`, and `spine_03`.
+
+    *   **General RigVM Functions (`AlsRigUnits.h`)**:
+        *   `FAlsRigVMFunction_Clamp01Float`: Clamps a float.
+        *   `FAlsRigVMFunction_ExponentialDecayVector` / `...Quaternion`: Smoothly interpolates vectors/quaternions.
+        *   `FAlsRigUnit_CalculatePoleVector`: Calculates IK pole vector.
+        *   `FAlsRigVMFunction_IsGameWorld`: A control flow node that branches execution based on whether the rig is running in a game world or editor preview. Useful for enabling/disabling complex IK only in-game.
+
+#### **How to Use Control Rig and ALS RigVM Units**
+
+1.  **Assign Control Rig Asset**:
+    *   Select your character's `SkeletalMeshComponent`.
+    *   In the Details panel, under "Animation -> Control Rig", assign your `CR_Als_Character` (or custom derived) asset to the `Control Rig Class` slot.
+2.  **AnimGraph Setup (`ABP_AlsCharacter`)**:
+    *   In the AnimGraph, after your main state machine and layering logic, add a "Control Rig" node.
+    *   Connect the final character pose to its "In Pose" pin.
+    *   For the input pins of the "Control Rig" node (which correspond to the "Input" variables defined in your `CR_Als_Character` graph's "RigVM" graph):
+        *   Get a reference to your `UAlsAnimationInstance`.
+        *   Call `GetControlRigInput()`.
+        *   Break the `FAlsControlRigInput` struct and connect its members to the corresponding pins on the "ControlRig" node (e.g., `FootLeftLocation` from struct to `FootLeftLocation` pin on node).
+3.  **Control Rig Graph (`CR_Als_Character`)**:
+    *   Open your `CR_Als_Character` asset.
+    *   Go to the "RigVM" graph.
+    *   **Input Variables**: Create input variables that match the members of `FAlsControlRigInput` (e.g., `FootLeftLocation` of type Vector, `SpineYawAngle` of type Float). Mark them as "Input" in their details. These will appear as pins on the "Control Rig" node in the AnimBP.
+    *   **Foot IK Example Flow (for one foot, e.g., Left)**:
+        1.  Get `FootLeftLocation` and `FootLeftRotation` from the input variables (which came from `FAlsControlRigInput`).
+        2.  Use `AlsFootOffsetTrace`:
+            *   Input `FootTargetLocation`: from `FootLeftLocation` input.
+            *   Configure other trace params (channels, distances, `FootHeight`).
+            *   `bEnabled`: from `FAlsControlRigInput.bFootOffsetAllowed` AND `FAlsControlRigInput.bUseFootIkBones`.
+        3.  Use `AlsApplyFootOffsetLocation`:
+            *   Input `FootTargetLocation`: from `FootLeftLocation` input.
+            *   Input `FootOffsetLocationZ`: from `AlsFootOffsetTrace.OffsetLocationZ`.
+            *   Input `PelvisOffset`: (This is more complex, often comes from a separate pelvis IK adjustment in Control Rig that tries to keep pelvis level or lower it based on foot positions).
+            *   Configure `LegLength`, limits, interpolation.
+        4.  Use `AlsApplyFootOffsetRotation`:
+            *   Input `FootTargetRotation`: from `FootLeftRotation` input.
+            *   Input `FootOffsetNormal`: from `AlsFootOffsetTrace.OffsetNormal`.
+            *   Configure limits, interpolation.
+        5.  **Set Bone Transforms**: Use "Set Transform" nodes (or "Set Translation", "Set Rotation") to apply the `FootLocation` (from `AlsApplyFootOffsetLocation`) and `FootRotation` (from `AlsApplyFootOffsetRotation`) to the actual foot IK bone (e.g., `ik_foot_l`). Ensure "Propagate to Children" is usually true for IK effectors.
+    *   **Spine Rotation Example Flow**:
+        1.  Get `SpineYawAngle` from input variables.
+        2.  Create an `FQuat` from this yaw angle (e.g., `MakeQuatFromEuler` with Yaw set, Pitch/Roll 0).
+        3.  Use `AlsDistributeRotationSimple`:
+            *   Input `Rotation`: The FQuat from step 2.
+            *   Input `Items`: An array of bone keys for your spine bones (e.g., `spine_01`, `spine_02`, `spine_03`).
+            *   This will apply a portion of the `SpineYawAngle` to each spine bone.
+
+#### **Adding/Adapting Functionality (C++ & Blueprint Examples)**
+
+**1. Customizing Foot IK Behavior (e.g., Different `FootHeight` for Water Wading)**
+
+*   **Scenario**: When the character is wading in shallow water, you want their feet to appear slightly submerged, meaning the IK should target a point *below* the actual water surface.
+*   **A. Add State Detection**:
+    *   `AAlsCharacter`: Add a `bIsWadingInWater` (bool, replicated) or a Gameplay Tag `State.Wading`.
+    *   Update this state based on physics overlaps or volume detection.
+*   **B. Pass State to Control Rig**:
+    *   `UAlsAnimationInstance`: Add `bIsWading` to `FAlsControlRigInput`. Update it in `GetControlRigInput()` from `Character->bIsWadingInWater`.
+*   **C. Modify Control Rig Graph (`CR_Als_Character`)**:
+    *   Add an `IsWading` (bool) input variable.
+    *   Before the `AlsFootOffsetTrace` node:
+        ```rigVM
+        // Get original FootHeight from a variable or direct input
+        RigVM.CurrentFootHeight = RigVM.DefaultFootHeight;
+        Branch (Condition = RigVM.Input.IsWading)
+        {
+            True: RigVM.CurrentFootHeight = RigVM.DefaultFootHeight - RigVM.WadingDepthOffset; // e.g., WadingDepthOffset = 5.0 cm
+            False: // CurrentFootHeight remains DefaultFootHeight
+        }
+        // Connect RigVM.CurrentFootHeight to the FootHeight pin of AlsFootOffsetTrace
+        ```
+
+**2. Adding a New Procedural Adjustment (e.g., Head Look-At using Control Rig IK)**
+
+*   **Scenario**: You want the character's head to procedurally look at a target point using Control Rig's IK capabilities, blending with the base animation.
+*   **A. Define Target in `AAlsCharacter`**:
+    ```cpp
+    // AAlsCharacter.h
+    // UPROPERTY(BlueprintReadWrite, Replicated) FVector LookAtTargetWorldLocation;
+    // UPROPERTY(BlueprintReadWrite, Replicated) float HeadLookAtAlpha; // 0-1
+    ```
+*   **B. Pass to Control Rig via `UAlsAnimationInstance`**:
+    *   Add `LookAtTargetLocation` (Vector) and `HeadLookAtAlpha` (float) to `FAlsControlRigInput`.
+    *   Populate them in `UAlsAnimationInstance::GetControlRigInput()`.
+*   **C. Control Rig Graph (`CR_Als_Character`)**:
+    1.  Add `LookAtTargetLocation` and `HeadLookAtAlpha` input variables.
+    2.  After all other spine/body adjustments, get the current global transform of the `head` bone.
+    3.  Use a "Aim" constraint node (or "Aim Math" -> "Set Rotation") or a "Basic IK" node for the head:
+        *   **Bone**: `head`
+        *   **Target Location**: `Input.LookAtTargetLocation`
+        *   **Effector/Primary Axis**: The head bone's forward axis (e.g., X+).
+        *   **Pole Vector/Up Axis**: (Optional, for more stability) Could use character's up vector.
+    4.  Get the *resulting* head transform from the IK/Aim node.
+    5.  Use a "Blend Transform" node (or "Lerp Transform"):
+        *   **A**: Original animated head transform (from before IK).
+        *   **B**: IK-solved head transform.
+        *   **Alpha**: `Input.HeadLookAtAlpha`.
+    6.  Use "Set Transform" to apply the blended transform to the `head` bone.
+*   **GAS Integration**:
+    *   A `GameplayAbility` (`GA_FocusOnTarget`) could:
+        *   Identify a target actor.
+        *   Every tick (using an `AbilityTask_Tick`), update `Character->LookAtTargetWorldLocation` to the target actor's location.
+        *   Set `Character->HeadLookAtAlpha` to `1.0`.
+    *   When the ability ends, set `Character->HeadLookAtAlpha` to `0.0`.
+
+#### **Network Synchronization**
+
+*   **Control Rig Executes Locally**: The Control Rig graph runs on the server and on each client independently.
+*   **Input Synchronization**: The consistency of Control Rig's output relies on its inputs from `FAlsControlRigInput` being reasonably synchronized. `UAlsAnimationInstance` calculates this struct based on character state, which *is* replicated (`AAlsCharacter` tags, transform) or derived from replicated animation states.
+*   **No Direct Replication of Rig Outputs**: The bone transforms modified by Control Rig are not typically replicated bone by bone. Instead, the overall character animation and state that *leads* to those Control Rig inputs is what's synchronized.
+*   **Visual Consistency**: Because the inputs and the Control Rig graph itself are deterministic, all clients should see very similar procedural adjustments, leading to visually consistent foot IK, hand placement, etc. Minor deviations are possible due to floating-point precision and varying `DeltaTime` on clients if not perfectly synced, but usually not noticeable.
+
+#### **Debugging**
+
+*   **Control Rig Editor & Debugger**: This is your primary tool.
+    *   **Graph Execution**: Set breakpoints on RigVM nodes, step through, and inspect input/output values of each pin.
+    *   **Viewport Preview**: Observe the character preview in the Control Rig editor as you make changes or scrub the timeline.
+    *   **Debug Drawing**: Many RigVM nodes (especially IK and constraint nodes) have options to draw debug visualizations in the preview viewport. You can also use "Draw Transform" or "Draw Point/Line/Sphere" nodes in your graph for custom debug visuals.
+*   **Animation Debugger (In PIE)**:
+    *   Select your character. In the Animation Debugger, navigate to the "Control Rig" tab.
+    *   You can see a list of all executable nodes and inspect their "cooked" (runtime) values for all exposed pins.
+    *   This is invaluable for seeing what data your `ABP_AlsCharacter` is actually feeding into the "Control Rig" node.
+*   **`UAlsAnimationInstance` Details Panel**: Check the `GetControlRigInput()` result or the `FAlsControlRigInput` member (if you cache it) to see what data is being prepared for Control Rig.
+*   **Visual Inspection in Game**:
+    *   *Feet floating/clipping?* Check `AlsFootOffsetTrace` outputs, `AlsApplyFootOffsetLocation` constraints, and `FootHeight` parameter.
+    *   *Hands not aligned with weapon?* Check `AlsRigUnit_HandIkRetargeting` inputs (animated hand positions vs. IK target socket positions) and the `RetargetingWeight`.
+    *   *Spine not twisting correctly for aim?* Check the input `SpineYawAngle` and the logic in `AlsDistributeRotationSimple`.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## **IV. Core Utilities (Continued)**
+
+### **F. Logging (`AlsLog`)**
+
+#### **Scope**
+
+This subsection covers the custom logging setup for the Advanced Locomotion System, specifically the `LogAls` category and its integration with the Unreal Engine editor's Message Log.
+
+#### **Purpose**
+
+The ALS logging system provides a dedicated channel for outputting informational messages, warnings, and errors generated by the ALS codebase. This offers several advantages:
+*   **Clarity**: Separates ALS-specific logs from general engine or game logs, making it easier to find relevant information.
+*   **Filtering**: Allows developers to filter the Output Log specifically for `LogAls` messages.
+*   **Verbosity Control**: The verbosity of `LogAls` can be adjusted independently.
+*   **Editor Integration**: Critical warnings and errors can be directed to the "ALS" tab in the editor's Message Log window, providing a more prominent and persistent notification than just the Output Log.
+
+#### **Key Concepts/Components**
+
+1.  **Log Category Definition**:
+    *   **`AlsLog.h`**: `ALS_API DECLARE_LOG_CATEGORY_EXTERN(LogAls, Log, All)`
+        *   Declares the `LogAls` category so it can be used throughout the ALS module and by other modules that depend on ALS.
+        *   `Log`: Default runtime verbosity (can be changed via console commands or config files).
+        *   `All`: Compile-time maximum verbosity (ensures all log levels are compiled in, even if not active at runtime).
+    *   **`AlsLog.cpp`**: `DEFINE_LOG_CATEGORY(LogAls)`
+        *   Actually defines the log category instance.
+
+2.  **Message Log Name**:
+    *   **`AlsLog.cpp`**: `const FName AlsLog::MessageLogName{TEXTVIEW("Als")};`
+    *   **Significance**: This `FName` is used to register a custom tab in the Unreal Editor's "Message Log" window (Window -> Developer Tools -> Message Log).
+
+3.  **Module Integration (`FALSModule` in `ALSModule.cpp`)**:
+    *   **`FALSModule::StartupModule()`**:
+        *   `FMessageLogModule& MessageLog = FModuleManager::LoadModuleChecked<FMessageLogModule>(FName(TEXTVIEW("MessageLog")));`
+        *   `MessageLog.RegisterLogListing(AlsLog::MessageLogName, LOCTEXT("MessageLogLabel", "ALS"), MessageLogOptions);`
+        *   This code, executed when the ALS module starts up in the editor, creates the "ALS" tab in the Message Log window. `MessageLogOptions` can configure if it shows filters, allows clearing, etc.
+
+#### **Methods & Functions (How to Use Logging)**
+
+*   **Standard `UE_LOG` Macro**:
+    *   **Syntax**: `UE_LOG(LogCategory, Verbosity, Format, ...Args)`
+    *   **Usage with `LogAls`**:
+        ```cpp
+        #include "Utility/AlsLog.h" // Ensure this is included
+
+        // Informational message
+        UE_LOG(LogAls, Log, TEXT("Character %s initialized successfully."), *MyCharacter->GetName());
+
+        // Warning message
+        UE_LOG(LogAls, Warning, TEXT("Potential issue: Foot IK trace failed for %s."), *FootBoneName.ToString());
+
+        // Error message
+        UE_LOG(LogAls, Error, TEXT("Critical error: AlsCharacterSettings asset is missing!"));
+        ```
+    *   **Verbosity Levels**: `Fatal`, `Error`, `Warning`, `Display`, `Log`, `Verbose`, `VeryVerbose`.
+
+*   **Sending Messages to the Editor's "ALS" Message Log Tab**:
+    *   This is typically used for more persistent warnings or errors that the developer should be clearly notified about.
+    ```cpp
+    #include "Utility/AlsLog.h"
+    #include "Logging/MessageLog.h" // Required for FMessageLog
+    #include "Misc/UObjectToken.h"   // Optional: To create clickable links to UObjects in the log
+
+    void AMyAlsRelatedActor::SomeImportantCheck()
+    {
+        if (CrucialSetting == nullptr)
+        {
+            // Create a message log writer targeting the "Als" log
+            FMessageLog MessageLogWriter(AlsLog::MessageLogName);
+
+            // Construct the message text (using FText for potential localization)
+            FText WarningMessage = FText::Format(
+                NSLOCTEXT("MyAlsRelatedActor", "MissingCrucialSettingWarning", "CrucialSetting is not set for {0}! This might cause issues."),
+                FText::FromString(this->GetName())
+            );
+
+            // Add the message as a warning
+            TSharedRef<FTokenizedMessage> MessageToken = MessageLogWriter.Warning(WarningMessage);
+
+            // Optional: Add a token that allows clicking the message to select the actor in the editor
+            MessageToken->AddToken(FUObjectToken::Create(this));
+
+            // Notify/Open the message log. Notify just adds it, Open forces the window to pop up.
+            MessageLogWriter.Notify();
+            // Or for more severe issues: MessageLogWriter.Open(EMessageSeverity::Warning);
+        }
+    }
+    ```
+
+#### **Adding/Adapting Functionality**
+
+*   **Adding Log Messages**: The primary way to "adapt" this is to add more `UE_LOG(LogAls, ...)` statements throughout your ALS-derived C++ code or new ALS-related systems to aid in debugging and understanding runtime behavior.
+*   **Custom Log Categories**: If you build a significant subsystem on top of ALS, you might consider defining your own log category (e.g., `LogMyAlsPlugin`) for even finer-grained filtering, following the same pattern as `LogAls`.
+*   **GAS Integration**:
+    *   **C++ Gameplay Abilities/Tasks**: Your custom C++ GAS components can use `UE_LOG(LogAls, ...)` to log information about ability activation, effects being applied, or interactions with ALS states.
+        ```cpp
+        // In a UGameplayAbility C++ class
+        #include "Utility/AlsLog.h"
+
+        void UMyAlsGasAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
+        {
+            Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+            UE_LOG(LogAls, Log, TEXT("Ability %s activated for %s."), *GetName(), *ActorInfo->AvatarActor->GetName());
+            // ... ability logic ...
+        }
+        ```
+    *   This helps trace how GAS is interacting with or driving ALS behaviors.
+
+#### **Network Synchronization**
+
+*   Logging itself is a local client/server operation. `UE_LOG` messages will appear in the Output Log of the machine where the code is executing.
+*   When debugging multiplayer issues, it's common to check logs on both the server and the relevant clients to compare states and event timings.
+*   Prefixing log messages with `UWorld::GetNetMode()` or `Actor->GetLocalRole()` can be very helpful to distinguish server logs from client logs.
+    ```cpp
+    // Example:
+    // FString RoleString = UEnum::GetValueAsString(GetLocalRole());
+    // UE_LOG(LogAls, Log, TEXT("[%s] My log message on actor %s"), *RoleString, *GetName());
+    ```
+
+#### **Debugging**
+
+*   **Output Log**: The primary window in the Unreal Editor (Window -> Developer Tools -> Output Log) to view `UE_LOG` messages.
+    *   **Filtering**: Use the "Categories" filter in the Output Log to show only `LogAls` messages.
+*   **Message Log Window**: (Window -> Developer Tools -> Message Log). Select the "ALS" tab to see messages sent via `FMessageLog(AlsLog::MessageLogName)`.
+*   **Console Commands for Log Verbosity**:
+    *   `Log LogAls All`: Sets `LogAls` to display all messages up to `VeryVerbose`.
+    *   `Log LogAls Warning`: Sets `LogAls` to display only `Warning`, `Error`, and `Fatal` messages.
+    *   `Log LogAls None`: Disables `LogAls` output.
+    These can be typed into the in-game console or editor console.
+
+---
+
+### **G. Macros (`AlsMacros.h`)**
+
+#### **Scope**
+
+This subsection details the custom C++ preprocessor macros defined in `AlsMacros.h`, focusing on the `ALS_ENSURE` family of macros.
+
+#### **Purpose**
+
+The `ALS_ENSURE` macros provide a lightweight, developer-friendly assertion mechanism. They are designed to:
+*   Verify assumptions in the code during development.
+*   Alert developers to unexpected conditions or states without necessarily crashing the editor or game (unlike `check()`).
+*   Reduce log spam by typically firing only once per ensure site.
+*   Offer a slightly more performant alternative to the full `ensure()` macro in some contexts, as they don't generate a C++ call stack by default.
+
+#### **Key Concepts/Components**
+
+1.  **`ALS_ENSURE(Expression)`**:
+    *   Checks if `Expression` is true. If false, logs an error/warning and may break into the debugger. Fires once by default.
+2.  **`ALS_ENSURE_MESSAGE(Expression, Format, ...)`**:
+    *   Same as `ALS_ENSURE`, but allows a custom formatted message to be logged.
+3.  **`ALS_ENSURE_ALWAYS(Expression)`**:
+    *   Checks `Expression`. If false, logs and may break. *Always* fires if the condition is false and the cvar `core.EnsureAlwaysEnabled` is true, regardless of previous executions at that site.
+4.  **`ALS_ENSURE_ALWAYS_MESSAGE(Expression, Format, ...)`**:
+    *   Same as `ALS_ENSURE_ALWAYS`, but with a custom message.
+
+*   **Internal Logic (`AlsEnsure::Execute`)**:
+    *   A `static std::atomic<bool> bExecuted` is used at each macro call site to track if it has already fired.
+    *   It respects `FPlatformMisc::IsEnsureAllowed()`.
+    *   It checks the `core.EnsureAlwaysEnabled` console variable for `_ALWAYS` versions.
+    *   If it determines it should fire, it logs using `LogOutputDevice` (which routes to `UE_LOG`) and attempts to `PLATFORM_BREAK()` if a debugger is present.
+    *   It does *not* use the standard engine ensure handler that generates crash reports by default.
+
+*   **`ALS_GET_TYPE_STRING(Type)`**:
+    *   A utility macro (likely used internally or for other debugging) to get the string representation of a C++ type name.
+
+#### **Methods & Functions (How to Use Macros)**
+
+These are preprocessor macros, used directly in C++ code.
+
+```cpp
+#include "Utility/AlsMacros.h"
+#include "AlsCharacter.h" // For example
+
+void AMyAlsLogicComponent::ProcessCharacter(AAlsCharacter* Character)
+{
+    // Ensure the character pointer is valid before using it.
+    if (!ALS_ENSURE_MESSAGE(IsValid(Character), TEXT("ProcessCharacter called with an invalid Character pointer!")))
+    {
+        return; // Don't proceed if ensure failed
+    }
+
+    // Example: Ensure character is in a specific state
+    const float Speed = Character->GetLocomotionState().Speed;
+    ALS_ENSURE_MESSAGE(Speed >= 0.0f, TEXT("Character speed %f is negative! This should not happen."), Speed);
+
+    // For a condition that should *always* be checked if problematic, even if it fired before:
+    // This might be for a very critical invariant that, if broken repeatedly, needs constant attention.
+    // bool bCriticalInvariant = CheckMyCriticalThing();
+    // ALS_ENSURE_ALWAYS_MESSAGE(bCriticalInvariant, TEXT("Critical invariant failed!"));
+}
+```
+
+#### **Adding/Adapting Functionality**
+
+*   **Primary Use**: Integrate these macros into your custom C++ code that extends or interacts with ALS. Use them for validating preconditions, postconditions, and invariants in your functions.
+*   **Choosing `ALS_ENSURE` vs. `ensure()` vs. `check()`**:
+    *   `check()`: For conditions that *must absolutely never* be false. If they are, it's a critical programming error, and the program should crash (even in shipping for some checks).
+    *   `ensure()`: For conditions that *should* always be true, but if false, might not be fatal to the program. Generates a call stack and potentially a crash report. Can be spammy if the same ensure fails repeatedly.
+    *   `ALS_ENSURE()`: For conditions similar to `ensure()`, but where you want less log spam (fires once by default), no automatic crash report, and potentially slightly better performance due to no call stack generation. Good for common checks in frequently called code.
+*   **GAS Integration**:
+    *   When writing C++ `UGameplayAbility` or `UGameplayAbilityTask` classes that interact with `AAlsCharacter` or `UAlsAnimationInstance`, use `ALS_ENSURE` to validate assumptions about the character's state or the validity of pointers.
+    ```cpp
+    // In a Gameplay Ability Task
+    // UMyAlsAbilityTask_WaitForGait.h
+    // AAlsCharacter* AlsCharacterOwner;
+
+    // UMyAlsAbilityTask_WaitForGait.cpp
+    // void UMyAlsAbilityTask_WaitForGait::TickTask(float DeltaTime)
+    // {
+    //    if (!ALS_ENSURE_MESSAGE(IsValid(AlsCharacterOwner), TEXT("AlsCharacterOwner became invalid during task %s"), *GetName()))
+    //    {
+    //        EndTask();
+    //        return;
+    //    }
+    //    if (AlsCharacterOwner->GetGait() == TargetGait)
+    //    {
+    //        OnGaitReached.Broadcast();
+    //        EndTask();
+    //    }
+    // }
+    ```
+
+#### **Network Synchronization**
+
+*   Macros are compile-time constructs and have no direct network synchronization aspect. They execute on the machine where the code is running (client or server).
+*   Ensure checks related to replicated data should consider that clients might have slightly stale data.
+
+#### **Debugging**
+
+*   **Debugger Breakpoint**: If an `ALS_ENSURE` fails and a debugger is attached, `PLATFORM_BREAK()` will trigger a breakpoint at the location of the failed ensure, allowing you to inspect the call stack (in your IDE) and variable values.
+*   **Output Log**: Messages from failed `ALS_ENSURE` macros (including custom messages) are printed to the Output Log using `LogOutputDevice`, typically appearing as `Error` or `Warning` severity prefixed with "Ensure failed:".
+*   **Console Variable `core.EnsureAlwaysEnabled`**:
+    *   `core.EnsureAlwaysEnabled 0` (default): `ALS_ENSURE` fires once. `ALS_ENSURE_ALWAYS` fires once.
+    *   `core.EnsureAlwaysEnabled 1`: `ALS_ENSURE` fires once. `ALS_ENSURE_ALWAYS` fires *every time* its condition is false. Useful for repeatedly hitting a problematic ensure during a debugging session.
+
+---
+
+### **H. Enum Utilities (`AlsEnumUtility.h`)**
+
+#### **Scope**
+
+This subsection covers the utility functions within the `AlsEnumUtility` namespace, designed to assist with common operations related to C++ `enum class` types that are registered with Unreal Engine's reflection system (UEnums).
+
+#### **Purpose**
+
+To provide convenient, type-safe helper functions for:
+*   Converting an enum value to its integer index within the `UEnum` definition.
+*   Retrieving the string name of an enum value.
+These are primarily useful for debugging, logging, or when interfacing with systems that might require string or integer representations of enum values.
+
+#### **Key Concepts/Components**
+
+The utilities are template functions, meaning they can work with any `enum class` that has been exposed to Unreal's reflection system (e.g., by using `UENUM(BlueprintType)`).
+
+#### **Methods & Functions (Templated in `AlsEnumUtility` namespace)**
+
+1.  **`template <typename EnumType> int32 GetIndexByValue(const EnumType Value)`**
+    *   **Purpose**: Given an enum value, this function returns its integer index as defined in the `UEnum` metadata.
+    *   **Parameters**: `Value` (an instance of the `EnumType`).
+    *   **Return Value**: `int32` - The index of the enum value.
+    *   **Functional Meaning**: For an enum like:
+        ```cpp
+        UENUM(BlueprintType)
+        enum class EMyEnum : uint8 { ValueA, ValueB, ValueC };
+        ```
+        `GetIndexByValue(EMyEnum::ValueB)` would return `1`.
+    *   **Usage Example**:
+        ```cpp
+        #include "Utility/AlsEnumUtility.h"
+        // Assuming EAlsMovementDirection is a UENUM
+        EAlsMovementDirection CurrentDir = EAlsMovementDirection::Forward;
+        int32 DirIndex = AlsEnumUtility::GetIndexByValue(CurrentDir); // DirIndex would be 0
+        UE_LOG(LogAls, Log, TEXT("MovementDirection %s has index %d"), *StaticEnum<EAlsMovementDirection>()->GetNameStringByValue(static_cast<int64>(CurrentDir)), DirIndex);
+        ```
+
+2.  **`template <typename EnumType> FString GetNameStringByValue(const EnumType Value)`**
+    *   **Purpose**: Given an enum value, this function returns its string name as defined in the `UEnum` metadata (the part after the `EMyEnum::` prefix).
+    *   **Parameters**: `Value` (an instance of the `EnumType`).
+    *   **Return Value**: `FString` - The string name of the enum value.
+    *   **Functional Meaning**: For `EMyEnum::ValueB`, this would return the FString `"ValueB"`.
+    *   **Usage Example**:
+        ```cpp
+        #include "Utility/AlsEnumUtility.h"
+        EAlsGait CurrentGait = AlsGaitTags::Sprinting.GetTag().IsValid() ? EAlsGait::Sprinting : EAlsGait::Walking; // Hypothetical EAlsGait enum
+        // Assuming EAlsGait exists and is a UENUM
+        // FString GaitName = AlsEnumUtility::GetNameStringByValue(CurrentGait);
+        // UE_LOG(LogAls, Log, TEXT("Current Gait: %s"), *GaitName);
+        // For GameplayTags, UAlsUtility::GetSimpleTagName is usually preferred:
+        FString GaitTagName = UAlsUtility::GetSimpleTagName(ACharacter->GetGait()).ToString();
+        UE_LOG(LogAls, Log, TEXT("Current Gait Tag: %s"), *GaitTagName);
+        ```
+        *(Note: ALS primarily uses Gameplay Tags for states like Gait, Stance, etc. `AlsEnumUtility` would be more for custom C++ enums you define and expose as `UENUM`s, if any.)*
+
+#### **Adding/Adapting Functionality**
+
+*   These are generic utility functions. You don't typically "add" to them unless you discover a new common enum operation that would be widely useful.
+*   **Usage**: Simply call these functions with your `UENUM` `enum class` type and value when you need its index or string name, typically for logging or creating debug UIs.
+*   **GAS Integration**:
+    *   If your Gameplay Abilities or Effects use custom C++ `UENUM`s for internal state tracking or parameterization, you can use `AlsEnumUtility::GetNameStringByValue` to easily log the current state of these enums for debugging GAS logic.
+    ```cpp
+    // In a custom Gameplay Effect Execution Calculation
+    // UENUM() enum class EMyDamageType : uint8 { Slash, Pierce, Blunt };
+    // EMyDamageType IncomingDamageType = GetDamageTypeFromSpec(Spec); // Hypothetical
+    // FString DamageTypeName = AlsEnumUtility::GetNameStringByValue(IncomingDamageType);
+    // UE_LOG(LogAls, Log, TEXT("Applying %s damage."), *DamageTypeName);
+    ```
+
+#### **Network Synchronization**
+
+*   Enum utilities are purely local functions; they don't involve networking.
+*   If an enum value itself is replicated (e.g., as a `UPROPERTY(Replicated)` on an actor), then each machine can independently use these utilities on its local copy of the enum value.
+
+#### **Debugging**
+
+*   The primary use of these utilities *is* for debugging and logging. By converting enum values to strings, you can make your log output much more readable than just printing integer values of enums.
+*   When stepping through code in a debugger, you can often see the string name of an enum value directly, but these utilities are useful for programmatic logging or display.
+
+---

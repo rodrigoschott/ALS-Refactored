@@ -1,11 +1,16 @@
 #include "AlsCharacterExample.h"
 
 #include "AlsCameraComponent.h"
+#include "AlsCameraSettings.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "GameFramework/PlayerController.h"
 #include "Utility/AlsVector.h"
+
+// GAS-related includes - using proper module paths for UE5.5
+#include "AbilitySystemComponent.h"
+#include "GameplayAbilitySpec.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AlsCharacterExample)
 
@@ -14,6 +19,11 @@ AAlsCharacterExample::AAlsCharacterExample()
 	Camera = CreateDefaultSubobject<UAlsCameraComponent>(FName{TEXTVIEW("Camera")});
 	Camera->SetupAttachment(GetMesh());
 	Camera->SetRelativeRotation_Direct({0.0f, 90.0f, 0.0f});
+
+	// Create and configure the AbilitySystemComponent
+	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
+	AbilitySystemComponent->SetIsReplicated(true); // Enable replication for the ASC
+	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
 }
 
 void AAlsCharacterExample::NotifyControllerChanged()
@@ -85,6 +95,17 @@ void AAlsCharacterExample::SetupPlayerInputComponent(UInputComponent* Input)
 		EnhancedInput->BindAction(RotationModeAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnRotationMode);
 		EnhancedInput->BindAction(ViewModeAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnViewMode);
 		EnhancedInput->BindAction(SwitchShoulderAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnSwitchShoulder);
+		
+		// TopDown camera input bindings
+		if (IsValid(TopDownCameraZoomAction))
+		{
+			EnhancedInput->BindAction(TopDownCameraZoomAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnTopDownCameraZoom);
+		}
+		
+		if (IsValid(TopDownCameraRotateAction))
+		{
+			EnhancedInput->BindAction(TopDownCameraRotateAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnTopDownCameraRotate);
+		}
 	}
 }
 
@@ -210,7 +231,25 @@ void AAlsCharacterExample::Input_OnRotationMode()
 
 void AAlsCharacterExample::Input_OnViewMode()
 {
-	SetViewMode(GetViewMode() == AlsViewModeTags::ThirdPerson ? AlsViewModeTags::FirstPerson : AlsViewModeTags::ThirdPerson);
+	// Cycle through the three view modes: ThirdPerson -> FirstPerson -> TopDown -> ThirdPerson
+	if (GetViewMode() == AlsViewModeTags::ThirdPerson)
+	{
+		SetViewMode(AlsViewModeTags::FirstPerson);
+	}
+	else if (GetViewMode() == AlsViewModeTags::FirstPerson)
+	{
+		SetViewMode(AlsViewModeTags::TopDown);
+		
+		// Initialize TopDown camera distance if needed
+		if (IsValid(Camera) && FMath::IsNearlyZero(Camera->GetTopDownCurrentDistance()))
+		{
+			Camera->SetTopDownCameraDistance(Camera->GetCameraSettings()->TopDown.DefaultDistance);
+		}
+	}
+	else
+	{
+		SetViewMode(AlsViewModeTags::ThirdPerson);
+	}
 }
 
 // ReSharper disable once CppMemberFunctionMayBeConst
@@ -227,4 +266,95 @@ void AAlsCharacterExample::DisplayDebug(UCanvas* Canvas, const FDebugDisplayInfo
 	}
 
 	Super::DisplayDebug(Canvas, DisplayInfo, Unused, VerticalLocation);
+}
+
+void AAlsCharacterExample::Input_OnTopDownCameraZoom(const FInputActionValue& ActionValue)
+{
+	if (GetViewMode() == AlsViewModeTags::TopDown && IsValid(Camera))
+	{
+		// Get the zoom value from the input action
+		const float ZoomValue = ActionValue.Get<float>();
+		
+		// Apply zoom to the camera - negative value zooms in, positive zooms out
+		Camera->AddTopDownCameraZoom(-ZoomValue * 50.0f);
+	}
+}
+
+void AAlsCharacterExample::Input_OnTopDownCameraRotate(const FInputActionValue& ActionValue)
+{
+	if (GetViewMode() == AlsViewModeTags::TopDown && IsValid(Camera))
+	{
+		// Get the rotation value from the input action
+		const FVector2f Value{ActionValue.Get<FVector2D>()};
+		
+		// Only use the X-axis for camera rotation in TopDown view
+		Camera->AddTopDownCameraRotation(Value.X * Camera->GetCameraSettings()->TopDown.RotationSpeed);
+	}
+}
+
+// --- GAS INTERFACE AND INITIALIZATION METHODS ---
+
+UAbilitySystemComponent* AAlsCharacterExample::GetAbilitySystemComponent() const
+{
+	return AbilitySystemComponent;
+}
+
+void AAlsCharacterExample::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController); // Call parent first!
+
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->InitAbilityActorInfo(this, this); // 'this' is both Owner and Avatar
+		InitializeDefaultAbilitiesAndEffects(); // Grant abilities/effects on server
+	}
+}
+
+void AAlsCharacterExample::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState(); // Call parent!
+
+	// Client-side ASC initialization
+	if (AbilitySystemComponent)
+	{
+		AbilitySystemComponent->InitAbilityActorInfo(this, this);
+		// Note: Do NOT call InitializeDefaultAbilitiesAndEffects() here on the client
+		// The server-granted ability specs will replicate to the client.
+	}
+}
+
+void AAlsCharacterExample::InitializeDefaultAbilitiesAndEffects()
+{
+	if (!AbilitySystemComponent || GetLocalRole() != ROLE_Authority) // Only Server should grant abilities
+	{
+		return;
+	}
+
+	// Grant Default Abilities
+	for (TSubclassOf<UGameplayAbility>& AbilityClass : DefaultAbilities)
+	{
+		if (AbilityClass)
+		{
+			// InputID of -1 (or INDEX_NONE) means this ability is not directly bound to an input from this spec.
+			// It will be activated via TryActivateAbilityByClass or by GameplayEvent.
+			FGameplayAbilitySpec AbilitySpec(AbilityClass, 1, INDEX_NONE, this);
+			AbilitySystemComponent->GiveAbility(AbilitySpec);
+		}
+	}
+
+	// Apply Default Startup Effects (e.g., to initialize attributes)
+	for (TSubclassOf<UGameplayEffect>& EffectClass : DefaultStartupEffects)
+	{
+		if (EffectClass)
+		{
+			FGameplayEffectContextHandle ContextHandle = AbilitySystemComponent->MakeEffectContext();
+			ContextHandle.AddSourceObject(this); // The character is the source of these startup effects
+
+			FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(EffectClass, 1, ContextHandle);
+			if (SpecHandle.IsValid())
+			{
+				AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+			}
+		}
+	}
 }

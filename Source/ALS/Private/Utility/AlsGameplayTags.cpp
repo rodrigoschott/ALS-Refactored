@@ -1,9 +1,10 @@
-﻿#include "Utility/AlsGameplayTags.h"
+#include "Utility/AlsGameplayTags.h"
 
 namespace AlsViewModeTags
 {
 	UE_DEFINE_GAMEPLAY_TAG(FirstPerson, FName{TEXTVIEW("Als.ViewMode.FirstPerson")})
 	UE_DEFINE_GAMEPLAY_TAG(ThirdPerson, FName{TEXTVIEW("Als.ViewMode.ThirdPerson")})
+	UE_DEFINE_GAMEPLAY_TAG(TopDown, FName{TEXTVIEW("Als.ViewMode.TopDown")})
 }
 
 namespace AlsLocomotionModeTags

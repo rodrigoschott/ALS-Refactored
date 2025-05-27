@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "Engine/DataAsset.h"
 #include "Engine/Scene.h"
@@ -63,6 +63,49 @@ struct ALSCAMERA_API FAlsThirdPersonCameraSettings
 	FAlsTraceDistanceSmoothingSettings TraceDistanceSmoothing;
 };
 
+USTRUCT(BlueprintType)
+struct ALSCAMERA_API FAlsTopDownCameraSettings
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 5, ClampMax = 175, ForceUnits = "deg"))
+	float FieldOfView{75.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0, ForceUnits = "deg"))
+	float Pitch{-60.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0, ForceUnits = "cm"))
+	float MinDistance{500.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0, ForceUnits = "cm"))
+	float MaxDistance{1500.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0, ForceUnits = "cm"))
+	float DefaultDistance{800.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0))
+	float ZoomSpeed{100.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0))
+	float RotationSpeed{3.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0))
+	float InterpolationSpeed{10.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0, ForceUnits = "cm"))
+	float TraceRadius{15.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS")
+	TEnumAsByte<ECollisionChannel> TraceChannel{ECC_Visibility};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (InlineEditConditionToggle))
+	uint8 bEnableTraceDistanceSmoothing : 1 {true};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS",
+		DisplayName = "Enable Trace Distance Smoothing", Meta = (EditCondition = "bEnableTraceDistanceSmoothing"))
+	FAlsTraceDistanceSmoothingSettings TraceDistanceSmoothing;
+};
+
 UCLASS(Blueprintable, BlueprintType)
 class ALSCAMERA_API UAlsCameraSettings : public UDataAsset
 {
@@ -82,6 +125,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings")
 	FAlsThirdPersonCameraSettings ThirdPerson;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings")
+	FAlsTopDownCameraSettings TopDown;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings")
 	FPostProcessSettings PostProcess;

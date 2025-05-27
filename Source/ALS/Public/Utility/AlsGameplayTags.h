@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "NativeGameplayTags.h"
 
@@ -6,6 +6,7 @@ namespace AlsViewModeTags
 {
 	ALS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(FirstPerson)
 	ALS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(ThirdPerson)
+	ALS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TopDown)
 }
 
 namespace AlsLocomotionModeTags

@@ -74,6 +74,13 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
 	uint8 bRightShoulder : 1 {true};
 
+	// TopDown camera properties
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
+	float TopDownCurrentDistance{800.0f};
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
+	float TopDownCurrentYaw{0.0f};
+
 public:
 	UAlsCameraComponent();
 
@@ -123,8 +130,29 @@ public:
 	UFUNCTION(BlueprintPure, Category = "ALS|Camera", Meta = (ReturnDisplayName = "Trace Start"))
 	FVector GetThirdPersonTraceStartLocation() const;
 
+	UFUNCTION(BlueprintPure, Category = "ALS|Camera", Meta = (ReturnDisplayName = "Pivot Location"))
+	FVector GetTopDownPivotLocation() const;
+
 	UFUNCTION(BlueprintPure, Category = "ALS|Camera")
 	void GetViewInfo(FMinimalViewInfo& ViewInfo) const;
+
+	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
+	void AddTopDownCameraRotation(float YawDelta);
+	
+	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
+	void SetTopDownCameraYaw(float NewYaw);
+	
+	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
+	void AddTopDownCameraZoom(float ZoomDelta);
+	
+	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
+	void SetTopDownCameraDistance(float NewDistance);
+
+	UFUNCTION(BlueprintPure, Category = "ALS|Camera")
+	float GetTopDownCurrentDistance() const { return TopDownCurrentDistance; }
+
+	UFUNCTION(BlueprintPure, Category = "ALS|Camera")
+	UAlsCameraSettings* GetCameraSettings() const { return Settings; }
 
 private:
 	void TickCamera(float DeltaTime, bool bAllowLag = true);
@@ -143,6 +171,11 @@ private:
 	                             float DeltaTime, bool bAllowLag, float& NewTraceDistanceRatio) const;
 
 	bool TryAdjustLocationBlockedByGeometry(FVector& Location, bool bDisplayDebugCameraTraces) const;
+
+	// TopDown camera methods
+	FVector CalculateTopDownCameraLocation() const;
+	FRotator CalculateTopDownCameraRotation() const;
+	void TickTopDownCamera(float DeltaTime, bool bAllowLag = true);
 
 	// Debug
 

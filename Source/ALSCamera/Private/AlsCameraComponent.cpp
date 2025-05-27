@@ -1,6 +1,8 @@
 #include "AlsCameraComponent.h"
 
 #include "AlsCameraSettings.h"
+#include "Camera/CameraComponent.h"
+#include "AlsCharacter.h"
 #include "DrawDebugHelpers.h"
 #include "Animation/AnimInstance.h"
 #include "Engine/OverlapResult.h"
@@ -8,6 +10,7 @@
 #include "GameFramework/WorldSettings.h"
 #include "Utility/AlsCameraConstants.h"
 #include "Utility/AlsDebugUtility.h"
+#include "Utility/AlsGameplayTags.h"
 #include "Utility/AlsMacros.h"
 #include "Utility/AlsRotation.h"
 #include "Utility/AlsUtility.h"
@@ -138,6 +141,12 @@ FVector UAlsCameraComponent::GetThirdPersonTraceStartLocation() const
 		                                               : Settings->ThirdPerson.TraceShoulderLeftSocketName);
 }
 
+FVector UAlsCameraComponent::GetTopDownPivotLocation() const
+{
+	// For top-down view, use the character's location as the pivot point
+	return Character->GetActorLocation();
+}
+
 void UAlsCameraComponent::GetViewInfo(FMinimalViewInfo& ViewInfo) const
 {
 	ViewInfo.Location = CameraLocation;
@@ -213,6 +222,15 @@ void UAlsCameraComponent::TickCamera(const float DeltaTime, bool bAllowLag)
 	const auto PreviousPivotTargetLocation{PivotTargetLocation};
 
 	PivotTargetLocation = GetThirdPersonPivotLocation();
+
+	// Handle TopDown view mode
+	auto* AlsCharacter = Cast<AAlsCharacter>(Character);
+	if (IsValid(AlsCharacter) && AlsCharacter->GetViewMode() == AlsViewModeTags::TopDown)
+	{
+		// Use the TopDown camera logic
+		TickTopDownCamera(DeltaTime, bAllowLag);
+		return;
+	}
 
 	const auto FirstPersonOverride{
 		UAlsMath::Clamp01(GetAnimInstance()->GetCurveValue(UAlsCameraConstants::FirstPersonOverrideCurveName()))
@@ -557,4 +575,91 @@ bool UAlsCameraComponent::TryAdjustLocationBlockedByGeometry(FVector& Location, 
 	return !GetWorld()->OverlapBlockingTestByChannel(Location, FQuat::Identity, Settings->ThirdPerson.TraceChannel,
 	                                                 FCollisionShape::MakeSphere(Settings->ThirdPerson.TraceRadius * MeshScale),
 	                                                 {FreeSpaceTraceTag, false, GetOwner()});
+}
+
+void UAlsCameraComponent::AddTopDownCameraRotation(const float YawDelta)
+{
+	TopDownCurrentYaw = FMath::Fmod(TopDownCurrentYaw + YawDelta, 360.0f);
+}
+
+void UAlsCameraComponent::SetTopDownCameraYaw(const float NewYaw)
+{
+	TopDownCurrentYaw = FMath::Fmod(NewYaw, 360.0f);
+}
+
+void UAlsCameraComponent::AddTopDownCameraZoom(const float ZoomDelta)
+{
+	if (IsValid(Settings))
+	{
+		TopDownCurrentDistance = FMath::Clamp(TopDownCurrentDistance + ZoomDelta,
+										 Settings->TopDown.MinDistance,
+										 Settings->TopDown.MaxDistance);
+	}
+}
+
+void UAlsCameraComponent::SetTopDownCameraDistance(const float NewDistance)
+{
+	if (IsValid(Settings))
+	{
+		TopDownCurrentDistance = FMath::Clamp(NewDistance,
+										 Settings->TopDown.MinDistance,
+										 Settings->TopDown.MaxDistance);
+	}
+}
+
+FRotator UAlsCameraComponent::CalculateTopDownCameraRotation() const
+{
+	// Calculate camera rotation for top-down view
+	return FRotator(Settings->TopDown.Pitch, TopDownCurrentYaw, 0.0f);
+}
+
+FVector UAlsCameraComponent::CalculateTopDownCameraLocation() const
+{
+	const FVector TopDownPivotLoc = GetTopDownPivotLocation();
+	const FRotator TopDownCameraRot = CalculateTopDownCameraRotation();
+	
+	// Calculate camera location using the desired distance and rotation
+	FVector CameraDirection = TopDownCameraRot.Vector();
+	CameraDirection.Normalize();
+	
+	FVector TargetCameraLocation = TopDownPivotLoc - CameraDirection * TopDownCurrentDistance;
+	
+	// Perform camera trace to avoid clipping through geometry
+	float DummyTraceDistanceRatio = 1.0f;
+	return CalculateCameraTrace(TargetCameraLocation, FVector::ZeroVector, 0.0f, false, DummyTraceDistanceRatio);
+}
+
+void UAlsCameraComponent::TickTopDownCamera(float DeltaTime, bool bAllowLag)
+{
+	if (!IsValid(Settings))
+	{
+		return;
+	}
+	
+	// Initialize camera distance if needed
+	if (FMath::IsNearlyZero(TopDownCurrentDistance))
+	{
+		TopDownCurrentDistance = Settings->TopDown.DefaultDistance;
+	}
+	
+	// Calculate camera location and rotation for top-down view
+	const FVector TopDownTargetLocation = CalculateTopDownCameraLocation();
+	const FRotator TopDownTargetRotation = CalculateTopDownCameraRotation();
+	
+	// Apply interpolation if lag is allowed
+	if (bAllowLag)
+	{
+		CameraLocation = FMath::VInterpTo(CameraLocation, TopDownTargetLocation, 
+								 DeltaTime, Settings->TopDown.InterpolationSpeed);
+		CameraRotation = FMath::RInterpTo(CameraRotation, TopDownTargetRotation, 
+								 DeltaTime, Settings->TopDown.InterpolationSpeed);
+	}
+	else
+	{
+		CameraLocation = TopDownTargetLocation;
+		CameraRotation = TopDownTargetRotation;
+	}
+	
+	// Set field of view
+	CameraFieldOfView = bOverrideFieldOfView ? FieldOfViewOverride : Settings->TopDown.FieldOfView;
 }
