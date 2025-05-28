@@ -380,6 +380,13 @@ void UAlsAnimationInstance::RefreshView(const float DeltaTime)
 
 bool UAlsAnimationInstance::IsSpineRotationAllowed()
 {
+	if (ViewMode == AlsViewModeTags::TopDown)
+	{
+		// Generally, no spine rotation towards camera in top-down.
+		// This might change if you implement top-down cursor aiming later.
+		return false;
+	}
+
 	return RotationMode == AlsRotationModeTags::Aiming;
 }
 
@@ -520,7 +527,14 @@ void UAlsAnimationInstance::RefreshLook()
 	float TargetPitchAngle;
 	float InterpolationSpeed;
 
-	if (RotationMode == AlsRotationModeTags::VelocityDirection)
+	if (ViewMode == AlsViewModeTags::TopDown)
+	{
+		// In TopDown view, make the head look forward relative to the character's body
+		TargetYawAngle = 0.0f; // Look straight ahead relative to character's forward direction
+		TargetPitchAngle = 0.0f; // No pitch in top-down mode
+		InterpolationSpeed = Settings->View.LookTowardsInputYawAngleInterpolationSpeed;
+	}
+	else if (RotationMode == AlsRotationModeTags::VelocityDirection)
 	{
 		// Look towards input direction.
 

@@ -683,6 +683,13 @@ void AAlsCharacter::NotifyRotationModeChanged(const FGameplayTag& PreviousRotati
 
 void AAlsCharacter::RefreshRotationMode()
 {
+	// For Top-Down view, we want the character to always face its movement direction
+	if (ViewMode == AlsViewModeTags::TopDown)
+	{
+		SetRotationMode(AlsRotationModeTags::VelocityDirection);
+		return; // Skip the rest of the function for TopDown mode
+	}
+
 	const auto bAiming{bDesiredAiming || DesiredRotationMode == AlsRotationModeTags::Aiming};
 	const auto bSprinting{AlsCharacterMovement->GetMaxAllowedGait() == AlsGaitTags::Sprinting};
 
@@ -1788,6 +1795,13 @@ float AAlsCharacter::CalculateGroundedMovingRotationInterpolationSpeed() const
 			: DefaultInterpolationSpeed
 	};
 
+	// For TopDown view, don't apply the ViewState.YawSpeed multiplier since it doesn't make sense
+	// in the context of a top-down view where camera rotation is independent of character rotation
+	if (ViewMode == AlsViewModeTags::TopDown)
+	{
+		return InterpolationSpeed;
+	}
+	
 	static constexpr auto MaxInterpolationSpeedMultiplier{3.0f};
 	static constexpr auto ReferenceViewYawSpeed{300.0f};
 
@@ -1819,6 +1833,24 @@ void AAlsCharacter::RefreshInAirRotation(const float DeltaTime)
 	if (RefreshCustomInAirRotation(DeltaTime))
 	{
 		return;
+	}
+
+	// Special handling for TopDown view mode - always rotate toward velocity if moving
+	if (ViewMode == AlsViewModeTags::TopDown)
+	{
+		static constexpr auto RotationInterpolationSpeed{5.0f};
+		
+		if (LocomotionState.bMoving) // Or LocomotionState.bHasVelocity
+		{
+			// Always rotate towards velocity in air for top-down
+			SetRotationSmooth(LocomotionState.VelocityYawAngle, DeltaTime, RotationInterpolationSpeed);
+		}
+		else
+		{
+			// Not moving in air (e.g. straight up jump), maintain last orientation
+			RefreshTargetYawAngleUsingActorRotation();
+		}
+		return; // Skip other in-air rotation logic
 	}
 
 	static constexpr auto RotationInterpolationSpeed{5.0f};

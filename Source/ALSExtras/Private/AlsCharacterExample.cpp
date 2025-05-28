@@ -129,20 +129,51 @@ void AAlsCharacterExample::Input_OnMove(const FInputActionValue& ActionValue)
 {
 	const auto Value{UAlsVector::ClampMagnitude012D(ActionValue.Get<FVector2D>())};
 
-	auto ViewRotation{GetViewState().Rotation};
-
-	if (IsValid(GetController()))
+	// Check if we're in TopDown view mode
+	if (GetViewMode() == AlsViewModeTags::TopDown)
 	{
-		// Use exact camera rotation instead of target rotation whenever possible.
+		// SCREEN-RELATIVE INPUT for Top-Down View
+		// For TopDown view, we'll use the actual camera rotation for screen-relative movement
+		// This way we don't need to rely on the TopDownCameraCurrentYawAngle property
+		auto ViewRotation{GetViewState().Rotation};
 
-		FVector ViewLocation;
-		GetController()->GetPlayerViewPoint(ViewLocation, ViewRotation);
+		if (IsValid(GetController()))
+		{
+			// Get the actual camera rotation
+			FVector ViewLocation;
+			GetController()->GetPlayerViewPoint(ViewLocation, ViewRotation);
+		}
+
+		// Extract the camera's yaw to determine screen-relative directions
+		const float CameraYaw = ViewRotation.Yaw;
+
+		// Calculate world directions based on camera yaw
+		// Screen Top (Input Y+) corresponds to the camera's "forward" on the XY plane
+		// Screen Right (Input X+) corresponds to the camera's "right" on the XY plane
+		const FVector ScreenTopWorldDirection = UAlsVector::AngleToDirectionXY(UE_REAL_TO_FLOAT(CameraYaw));
+		const FVector ScreenRightWorldDirection = UAlsVector::AngleToDirectionXY(UE_REAL_TO_FLOAT(CameraYaw + 90.0f)); // Perpendicular
+
+		// Apply input, Y-axis of input for screen top/bottom, X-axis for screen left/right
+		AddMovementInput(ScreenTopWorldDirection * Value.Y);
+		AddMovementInput(ScreenRightWorldDirection * Value.X);
 	}
+	else
+	{
+		// Original ALS logic for First/Third person
+		auto ViewRotation{GetViewState().Rotation};
 
-	const auto ForwardDirection{UAlsVector::AngleToDirectionXY(UE_REAL_TO_FLOAT(ViewRotation.Yaw))};
-	const auto RightDirection{UAlsVector::PerpendicularCounterClockwiseXY(ForwardDirection)};
+		if (IsValid(GetController()))
+		{
+			// Use exact camera rotation instead of target rotation whenever possible.
+			FVector ViewLocation;
+			GetController()->GetPlayerViewPoint(ViewLocation, ViewRotation);
+		}
 
-	AddMovementInput(ForwardDirection * Value.Y + RightDirection * Value.X);
+		const auto ForwardDirection{UAlsVector::AngleToDirectionXY(UE_REAL_TO_FLOAT(ViewRotation.Yaw))};
+		const auto RightDirection{UAlsVector::PerpendicularCounterClockwiseXY(ForwardDirection)};
+
+		AddMovementInput(ForwardDirection * Value.Y + RightDirection * Value.X);
+	}
 }
 
 void AAlsCharacterExample::Input_OnSprint(const FInputActionValue& ActionValue)
@@ -274,9 +305,14 @@ void AAlsCharacterExample::Input_OnTopDownCameraZoom(const FInputActionValue& Ac
 	{
 		// Get the zoom value from the input action
 		const float ZoomValue = ActionValue.Get<float>();
+		const auto* CameraSettings = Camera->GetCameraSettings();
 		
-		// Apply zoom to the camera - negative value zooms in, positive zooms out
-		Camera->AddTopDownCameraZoom(-ZoomValue * 50.0f);
+		if (IsValid(CameraSettings))
+		{
+			// Apply zoom to the camera - negative value zooms in, positive zooms out
+			// Use the ZoomInputSensitivity from settings for proper configuration
+			Camera->AddTopDownCameraZoom(-ZoomValue * CameraSettings->TopDown.ZoomInputSensitivity);
+		}
 	}
 }
 
@@ -286,9 +322,16 @@ void AAlsCharacterExample::Input_OnTopDownCameraRotate(const FInputActionValue& 
 	{
 		// Get the rotation value from the input action
 		const FVector2f Value{ActionValue.Get<FVector2D>()};
+		const auto* CameraSettings = Camera->GetCameraSettings();
 		
-		// Only use the X-axis for camera rotation in TopDown view
-		Camera->AddTopDownCameraRotation(Value.X * Camera->GetCameraSettings()->TopDown.RotationSpeed);
+		if (IsValid(CameraSettings))
+		{
+			// X-axis controls camera yaw (rotation around the vertical axis)
+			Camera->AddTopDownCameraYaw(Value.X * CameraSettings->TopDown.YawInputSensitivity);
+			
+			// Y-axis controls camera pitch (up/down angle)
+			Camera->AddTopDownCameraPitch(Value.Y * CameraSettings->TopDown.PitchInputSensitivity);
+		}
 	}
 }
 

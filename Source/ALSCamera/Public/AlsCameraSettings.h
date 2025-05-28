@@ -68,35 +68,62 @@ struct ALSCAMERA_API FAlsTopDownCameraSettings
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 5, ClampMax = 175, ForceUnits = "deg"))
-	float FieldOfView{75.0f};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|FOV", Meta = (ClampMin = 5, ClampMax = 175, ForceUnits = "deg"))
+	float FieldOfView{70.0f}; // Renamed from Pitch for clarity, was likely FOV before
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0, ForceUnits = "deg"))
-	float Pitch{-60.0f};
+	// ZOOM SETTINGS
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Zoom", Meta = (ClampMin = 0, ForceUnits = "cm"))
+	float MinDistance{400.0f};
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0, ForceUnits = "cm"))
-	float MinDistance{500.0f};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Zoom", Meta = (ClampMin = 0, ForceUnits = "cm"))
+	float MaxDistance{2000.0f};
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0, ForceUnits = "cm"))
-	float MaxDistance{1500.0f};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Zoom", Meta = (ClampMin = 0, ForceUnits = "cm"))
+	float DefaultDistance{1000.0f}; // Used for initialization
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0, ForceUnits = "cm"))
-	float DefaultDistance{800.0f};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Zoom", Meta = (ClampMin = 0, ToolTip = "How many cm per unit of zoom input"))
+	float ZoomInputSensitivity{100.0f};
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0))
-	float ZoomSpeed{100.0f};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Zoom", Meta = (ClampMin = 0, ToolTip = "How quickly the camera distance smooths to the target"))
+	float ZoomLagSpeed{8.0f};
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0))
-	float RotationSpeed{3.0f};
+	// PITCH (UP/DOWN LOOK) SETTINGS
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Pitch", Meta = (ForceUnits = "deg", ToolTip = "Min Pitch (e.g., -85 looks more down), Max Pitch (e.g., -30 looks more horizontal)"))
+	FVector2D CameraPitchAngleLimits{-85.0f, -30.0f};
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0))
-	float InterpolationSpeed{10.0f};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Pitch", Meta = (ClampMin = -90.0, ClampMax = 0.0, ForceUnits = "deg"))
+	float DefaultCameraPitchAngle{-60.0f}; // Initial pitch, must be within PitchAngleLimits
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (ClampMin = 0, ForceUnits = "cm"))
-	float TraceRadius{15.0f};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Pitch", Meta = (ClampMin = 0, ToolTip = "How many degrees per unit of pitch input"))
+	float PitchInputSensitivity{1.0f}; // Will be scaled by DeltaSeconds for framerate independence for stick
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS")
-	TEnumAsByte<ECollisionChannel> TraceChannel{ECC_Visibility};
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Pitch", Meta = (ClampMin = 0, ToolTip = "How quickly the camera pitch smooths to the target"))
+	float PitchLagSpeed{10.0f};
+
+	// YAW (LEFT/RIGHT ROTATION) SETTINGS
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Yaw", Meta = (ClampMin = 0, ToolTip = "How many degrees per unit of yaw input"))
+	float YawInputSensitivity{1.5f}; // Will be scaled by DeltaSeconds for framerate independence for stick
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Yaw", Meta = (ClampMin = 0, ToolTip = "How quickly the camera yaw smooths to the target"))
+	float YawLagSpeed{10.0f};
+	
+	// If true, camera yaw is fixed in world space (player input orbits around this fixed yaw).
+	// If false, camera yaw tries to maintain an offset from the character's forward direction.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Yaw")
+	uint8 bFixedWorldYaw : 1 {false};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Yaw", Meta = (EditCondition = "bFixedWorldYaw", ForceUnits = "deg", ToolTip = "Initial world yaw if bFixedWorldYaw is true"))
+	float InitialFixedWorldYawAngle{0.0f};
+
+	// GENERAL LAG & TRACE
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Lag", Meta = (ClampMin = 0, ToolTip = "How quickly the camera's XY position follows the character"))
+	float LocationLagSpeed{12.0f};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Collision", Meta = (ClampMin = 0, ForceUnits = "cm"))
+	float TraceRadius{10.0f}; // Reduced from 15 for topdown, less likely to hit small things
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS|TopDown|Collision")
+	TEnumAsByte<ECollisionChannel> TraceChannel{ECC_Camera}; // Changed to ECC_Camera, often better
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "ALS", Meta = (InlineEditConditionToggle))
 	uint8 bEnableTraceDistanceSmoothing : 1 {true};

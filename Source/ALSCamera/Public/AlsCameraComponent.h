@@ -81,6 +81,18 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
 	float TopDownCurrentYaw{0.0f};
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
+	float TopDownCurrentPitch{-60.0f};
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
+	float TopDownTargetDistance{800.0f};
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
+	float TopDownTargetYaw{0.0f};
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State", Transient)
+	float TopDownTargetPitch{-60.0f};
+
 public:
 	UAlsCameraComponent();
 
@@ -137,10 +149,16 @@ public:
 	void GetViewInfo(FMinimalViewInfo& ViewInfo) const;
 
 	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
-	void AddTopDownCameraRotation(float YawDelta);
+	void AddTopDownCameraYaw(float YawDelta);
 	
 	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
 	void SetTopDownCameraYaw(float NewYaw);
+
+	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
+	void AddTopDownCameraPitch(float PitchDelta);
+	
+	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
+	void SetTopDownCameraPitch(float NewPitch);
 	
 	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
 	void AddTopDownCameraZoom(float ZoomDelta);
@@ -148,8 +166,25 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
 	void SetTopDownCameraDistance(float NewDistance);
 
+	// Target value setters (for character class to set desired camera state)
+	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
+	void SetTopDownTargetYaw(float NewYaw);
+
+	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
+	void SetTopDownTargetPitch(float NewPitch);
+
+	UFUNCTION(BlueprintCallable, Category = "ALS|Camera")
+	void SetTopDownTargetDistance(float NewDistance);
+
+	// Getters for current values
 	UFUNCTION(BlueprintPure, Category = "ALS|Camera")
 	float GetTopDownCurrentDistance() const { return TopDownCurrentDistance; }
+
+	UFUNCTION(BlueprintPure, Category = "ALS|Camera")
+	float GetTopDownCurrentYaw() const { return TopDownCurrentYaw; }
+
+	UFUNCTION(BlueprintPure, Category = "ALS|Camera")
+	float GetTopDownCurrentPitch() const { return TopDownCurrentPitch; }
 
 	UFUNCTION(BlueprintPure, Category = "ALS|Camera")
 	UAlsCameraSettings* GetCameraSettings() const { return Settings; }

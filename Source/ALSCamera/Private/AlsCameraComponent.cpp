@@ -577,40 +577,67 @@ bool UAlsCameraComponent::TryAdjustLocationBlockedByGeometry(FVector& Location, 
 	                                                 {FreeSpaceTraceTag, false, GetOwner()});
 }
 
-void UAlsCameraComponent::AddTopDownCameraRotation(const float YawDelta)
+void UAlsCameraComponent::AddTopDownCameraYaw(const float YawDelta)
 {
-	TopDownCurrentYaw = FMath::Fmod(TopDownCurrentYaw + YawDelta, 360.0f);
+	SetTopDownTargetYaw(TopDownTargetYaw + YawDelta);
 }
 
 void UAlsCameraComponent::SetTopDownCameraYaw(const float NewYaw)
 {
-	TopDownCurrentYaw = FMath::Fmod(NewYaw, 360.0f);
+	SetTopDownTargetYaw(NewYaw);
+}
+
+void UAlsCameraComponent::AddTopDownCameraPitch(const float PitchDelta)
+{
+	SetTopDownTargetPitch(TopDownTargetPitch + PitchDelta);
+}
+
+void UAlsCameraComponent::SetTopDownCameraPitch(const float NewPitch)
+{
+	SetTopDownTargetPitch(NewPitch);
 }
 
 void UAlsCameraComponent::AddTopDownCameraZoom(const float ZoomDelta)
 {
-	if (IsValid(Settings))
-	{
-		TopDownCurrentDistance = FMath::Clamp(TopDownCurrentDistance + ZoomDelta,
-										 Settings->TopDown.MinDistance,
-										 Settings->TopDown.MaxDistance);
-	}
+	SetTopDownTargetDistance(TopDownTargetDistance + ZoomDelta);
 }
 
 void UAlsCameraComponent::SetTopDownCameraDistance(const float NewDistance)
 {
+	SetTopDownTargetDistance(NewDistance);
+}
+
+void UAlsCameraComponent::SetTopDownTargetYaw(const float NewYaw)
+{
+	TopDownTargetYaw = FMath::Fmod(NewYaw, 360.0f);
+}
+
+void UAlsCameraComponent::SetTopDownTargetPitch(const float NewPitch)
+{
 	if (IsValid(Settings))
 	{
-		TopDownCurrentDistance = FMath::Clamp(NewDistance,
-										 Settings->TopDown.MinDistance,
-										 Settings->TopDown.MaxDistance);
+		// Clamp pitch between the min and max values in settings
+		TopDownTargetPitch = FMath::Clamp(NewPitch, 
+								   Settings->TopDown.CameraPitchAngleLimits.X, 
+								   Settings->TopDown.CameraPitchAngleLimits.Y);
+	}
+}
+
+void UAlsCameraComponent::SetTopDownTargetDistance(const float NewDistance)
+{
+	if (IsValid(Settings))
+	{
+		// Clamp distance between min and max values in settings
+		TopDownTargetDistance = FMath::Clamp(NewDistance,
+									 Settings->TopDown.MinDistance,
+									 Settings->TopDown.MaxDistance);
 	}
 }
 
 FRotator UAlsCameraComponent::CalculateTopDownCameraRotation() const
 {
 	// Calculate camera rotation for top-down view
-	return FRotator(Settings->TopDown.Pitch, TopDownCurrentYaw, 0.0f);
+	return FRotator(TopDownCurrentPitch, TopDownCurrentYaw, 0.0f);
 }
 
 FVector UAlsCameraComponent::CalculateTopDownCameraLocation() const
@@ -636,29 +663,59 @@ void UAlsCameraComponent::TickTopDownCamera(float DeltaTime, bool bAllowLag)
 		return;
 	}
 	
-	// Initialize camera distance if needed
-	if (FMath::IsNearlyZero(TopDownCurrentDistance))
+	// Initialize camera values if needed
+	if (FMath::IsNearlyZero(TopDownCurrentDistance) || FMath::IsNearlyZero(TopDownTargetDistance))
 	{
 		TopDownCurrentDistance = Settings->TopDown.DefaultDistance;
+		TopDownTargetDistance = Settings->TopDown.DefaultDistance;
 	}
 	
-	// Calculate camera location and rotation for top-down view
-	const FVector TopDownTargetLocation = CalculateTopDownCameraLocation();
-	const FRotator TopDownTargetRotation = CalculateTopDownCameraRotation();
+	if (FMath::IsNearlyZero(TopDownCurrentPitch))
+	{
+		TopDownCurrentPitch = Settings->TopDown.DefaultCameraPitchAngle;
+		TopDownTargetPitch = Settings->TopDown.DefaultCameraPitchAngle;
+	}
 	
-	// Apply interpolation if lag is allowed
+	// Smoothly interpolate current values toward target values
 	if (bAllowLag)
 	{
-		CameraLocation = FMath::VInterpTo(CameraLocation, TopDownTargetLocation, 
-								 DeltaTime, Settings->TopDown.InterpolationSpeed);
-		CameraRotation = FMath::RInterpTo(CameraRotation, TopDownTargetRotation, 
-								 DeltaTime, Settings->TopDown.InterpolationSpeed);
+		// Interpolate camera distance
+		TopDownCurrentDistance = FMath::FInterpTo(TopDownCurrentDistance, TopDownTargetDistance,
+										DeltaTime, Settings->TopDown.ZoomLagSpeed);
+		
+		// Interpolate camera yaw
+		TopDownCurrentYaw = FMath::FInterpTo(TopDownCurrentYaw, TopDownTargetYaw,
+								 DeltaTime, Settings->TopDown.YawLagSpeed);
+		
+		// Interpolate camera pitch
+		TopDownCurrentPitch = FMath::FInterpTo(TopDownCurrentPitch, TopDownTargetPitch,
+									 DeltaTime, Settings->TopDown.PitchLagSpeed);
 	}
 	else
 	{
-		CameraLocation = TopDownTargetLocation;
-		CameraRotation = TopDownTargetRotation;
+		// Immediately set values without interpolation
+		TopDownCurrentDistance = TopDownTargetDistance;
+		TopDownCurrentYaw = TopDownTargetYaw;
+		TopDownCurrentPitch = TopDownTargetPitch;
 	}
+	
+	// Calculate camera location and rotation for top-down view
+	const FVector TopDownPivotLoc = GetTopDownPivotLocation();
+	
+	// Smoothly follow character with position lag
+	PivotLocation = bAllowLag
+		? FMath::VInterpTo(PivotLocation, TopDownPivotLoc, DeltaTime, Settings->TopDown.LocationLagSpeed)
+		: TopDownPivotLoc;
+	
+	// Calculate camera transform
+	const FRotator CurrentRotation = CalculateTopDownCameraRotation();
+	const FVector Direction = CurrentRotation.Vector();
+	const FVector CameraTargetLocation = PivotLocation - Direction * TopDownCurrentDistance;
+	
+	// Trace to prevent camera clipping
+	float TraceRatio = 1.0f;
+	CameraLocation = CalculateCameraTrace(CameraTargetLocation, FVector::ZeroVector, DeltaTime, bAllowLag, TraceRatio);
+	CameraRotation = CurrentRotation;
 	
 	// Set field of view
 	CameraFieldOfView = bOverrideFieldOfView ? FieldOfViewOverride : Settings->TopDown.FieldOfView;
