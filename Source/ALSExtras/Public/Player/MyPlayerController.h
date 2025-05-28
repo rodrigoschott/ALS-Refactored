@@ -42,6 +42,13 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Selection")
     void ClearCurrentSelection();
 
+    // Debug visualization options
+    UPROPERTY(EditAnywhere, Category = "Debug")
+    bool bDrawDebugFrustum = true;
+    
+    // New 2D screen-space projection selection method for actor selection
+    bool Perform2DScreenSpaceSelection(FVector2D ScreenStart, FVector2D ScreenEnd, TArray<AActor*>& OutActorsInBox);
+
 protected:
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     // We are not replicating SelectedActors directly from PC to all clients.

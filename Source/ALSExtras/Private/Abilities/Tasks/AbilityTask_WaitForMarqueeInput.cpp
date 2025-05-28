@@ -49,7 +49,8 @@ void UAbilityTask_WaitForMarqueeInput::Activate()
 {
     UE_LOG(LogTemp, Log, TEXT("Activate: Starting activation of MarqueeInput task"));
     Super::Activate();
-
+    bTickingTask = true;
+    
     if (!Ability) { 
         UE_LOG(LogTemp, Error, TEXT("Activate: No valid ability found, ending task"));
         EndTask(); 
@@ -221,21 +222,26 @@ void UAbilityTask_WaitForMarqueeInput::HandleCancelPressed(const FInputActionVal
 
 void UAbilityTask_WaitForMarqueeInput::TickTask(float DeltaTime)
 {
-    UE_LOG(LogTemp, Verbose, TEXT("TickTask: Updating marquee"));
-    Super::TickTask(DeltaTime);
-    if (bIsMouseDown && PlayerController.IsValid() && MyPlayerController.IsValid())
+    Super::TickTask(DeltaTime); // Call Super
+
+    if (!bIsMouseDown) // If mouse is not considered down by the task, do nothing.
     {
-        FVector2D CurrentMousePos;
-        PlayerController->GetMousePosition(CurrentMousePos.X, CurrentMousePos.Y);
-        UE_LOG(LogTemp, Verbose, TEXT("TickTask: Current mouse position: X=%f, Y=%f"), CurrentMousePos.X, CurrentMousePos.Y);
-        MyPlayerController->Client_UpdateMarquee(CurrentMousePos);
+        // UE_LOG(LogTemp, VeryVerbose, TEXT("TASK TickTask: bIsMouseDown is FALSE."));
+        return;
     }
-    else if (bIsMouseDown)
+
+    if (!PlayerController.IsValid() || !MyPlayerController.IsValid())
     {
-        UE_LOG(LogTemp, Verbose, TEXT("TickTask: Cannot update marquee. Valid PC: %s, Valid MyPC: %s"), 
-            PlayerController.IsValid() ? TEXT("YES") : TEXT("NO"),
-            MyPlayerController.IsValid() ? TEXT("YES") : TEXT("NO"));
+        UE_LOG(LogTemp, Warning, TEXT("TASK TickTask: PlayerController or MyPlayerController is invalid. bIsMouseDown: %s"), bIsMouseDown ? TEXT("true") : TEXT("false"));
+        // Consider ending task if PC becomes invalid while mouse is down? Or just stop updating.
+        return; 
     }
+
+    FVector2D CurrentMousePos;
+    PlayerController->GetMousePosition(CurrentMousePos.X, CurrentMousePos.Y);
+
+    UE_LOG(LogTemp, Log, TEXT("TASK TickTask: Mouse at (%f, %f). Calling Client_UpdateMarquee."), CurrentMousePos.X, CurrentMousePos.Y);
+    MyPlayerController->Client_UpdateMarquee(CurrentMousePos);
 }
 
 void UAbilityTask_WaitForMarqueeInput::OnDestroy(bool bInOwnerFinished)
