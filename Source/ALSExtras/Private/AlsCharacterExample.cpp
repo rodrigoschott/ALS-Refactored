@@ -1,6 +1,7 @@
 #include "AlsCharacterExample.h"
 
 #include "AlsCameraComponent.h"
+#include "Components/DecalComponent.h"
 #include "AlsCameraSettings.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -24,6 +25,30 @@ AAlsCharacterExample::AAlsCharacterExample()
 	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AbilitySystemComponent->SetIsReplicated(true); // Enable replication for the ASC
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
+
+	// Initialize the SelectionDecal component
+	SelectionDecalComponent = CreateDefaultSubobject<UDecalComponent>(TEXT("SelectionDecal"));
+	SelectionDecalComponent->SetupAttachment(GetRootComponent()); // Attach to root component
+	SelectionDecalComponent->SetRelativeRotation(FRotator(90.0f, 0.0f, 0.0f)); // Point decal downwards
+	SelectionDecalComponent->DecalSize = DefaultSelectionDecalSize; // Set default size
+	SelectionDecalComponent->SetVisibility(false); // Initially hidden
+}
+
+void AAlsCharacterExample::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Initialize selection decal material if available
+	if (SelectionDecalComponent && DefaultSelectionDecalMaterial)
+	{
+		SelectionDecalComponent->SetDecalMaterial(DefaultSelectionDecalMaterial);
+		// Create a Dynamic Material Instance to modify parameters at runtime
+		UMaterialInstanceDynamic* DecalMID = SelectionDecalComponent->CreateDynamicMaterialInstance();
+		if (DecalMID)
+		{
+			DecalMID->SetVectorParameterValue(FName("DecalColorParam"), DefaultSelectionDecalColor);
+		}
+	}
 }
 
 void AAlsCharacterExample::NotifyControllerChanged()

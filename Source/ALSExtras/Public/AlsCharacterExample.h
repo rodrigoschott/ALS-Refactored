@@ -103,6 +103,8 @@ protected:
 public:
 	AAlsCharacterExample();
 
+	virtual void BeginPlay() override;
+
 	virtual void NotifyControllerChanged() override;
 
 	// Camera
@@ -163,4 +165,18 @@ public:
 	virtual void InitializeDefaultAbilitiesAndEffects();
 
 	virtual void DisplayDebug(UCanvas* Canvas, const FDebugDisplayInfo& DisplayInfo, float& Unused, float& VerticalLocation) override;
+
+protected:
+	// Selection Feedback Components
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Selection Feedback", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UDecalComponent> SelectionDecalComponent;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Selection Feedback|Config")
+	TObjectPtr<UMaterialInterface> DefaultSelectionDecalMaterial;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Selection Feedback|Config")
+	FLinearColor DefaultSelectionDecalColor = FLinearColor(0.1f, 0.8f, 0.1f, 0.5f); // A nice green
+
+	UPROPERTY(EditDefaultsOnly, Category = "Selection Feedback|Config")
+	FVector DefaultSelectionDecalSize{75.f, 150.f, 150.f}; // Adjust as needed
 };

@@ -64,3 +64,18 @@ namespace AlsGroundedEntryModeTags
 {
 	ALS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(FromRoll)
 }
+
+namespace AlsAbilityActionTags
+{
+	ALS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SelectionMarquee)
+}
+
+namespace AlsStatusTags
+{
+	ALS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SelectingWithMarquee)
+}
+
+namespace AlsSelectableObjectTags
+{
+	ALS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Unit_CanBeMarqueeSelected)
+}

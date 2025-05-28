@@ -62,3 +62,18 @@ namespace AlsGroundedEntryModeTags
 {
 	UE_DEFINE_GAMEPLAY_TAG(FromRoll, FName{TEXTVIEW("Als.GroundedEntryMode.FromRoll")})
 }
+
+namespace AlsAbilityActionTags
+{
+	UE_DEFINE_GAMEPLAY_TAG(SelectionMarquee, FName{TEXTVIEW("Ability.Action.SelectionMarquee")})
+}
+
+namespace AlsStatusTags
+{
+	UE_DEFINE_GAMEPLAY_TAG(SelectingWithMarquee, FName{TEXTVIEW("State.SelectingWithMarquee")})
+}
+
+namespace AlsSelectableObjectTags
+{
+	UE_DEFINE_GAMEPLAY_TAG(Unit_CanBeMarqueeSelected, FName{TEXTVIEW("Selectable.Unit.CanBeMarqueeSelected")})
+}
