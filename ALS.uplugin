@@ -33,6 +33,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "RingworldGameFeatures",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "ALSEditor",
 			"Type": "UncookedOnly",
 			"LoadingPhase": "PreDefault"
@@ -73,6 +78,10 @@
 		},
 		{
 			"Name": "PropertyAccessNode",
+			"Enabled": true
+		},
+		{
+			"Name": "GameplayAbilities",
 			"Enabled": true
 		}
 	]

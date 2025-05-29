@@ -1,46 +1,38 @@
-#include "AlsCharacterExample.h"
+// Plugins/ALS-Refactored/Source/ALSExtras/Private/AlsCharacterExample.cpp
+#include "AlsCharacterExample.h" // Should be Public/AlsCharacterExample.h if following convention
 
 #include "AlsCameraComponent.h"
+#include "AlsCameraSettings.h" 
 #include "Components/DecalComponent.h"
-#include "AlsCameraSettings.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "GameFramework/PlayerController.h"
-#include "Utility/AlsVector.h"
-
-// GAS-related includes - using proper module paths for UE5.5
-#include "AbilitySystemComponent.h"
-//#include "GameFramework/PlayerState.h"
-#include "ALSExtras\Public\Player\MyPlayerState.h"
+#include "Materials/MaterialInstanceDynamic.h" 
+#include "Utility/AlsVector.h" 
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AlsCharacterExample)
 
 AAlsCharacterExample::AAlsCharacterExample()
 {
 	Camera = CreateDefaultSubobject<UAlsCameraComponent>(FName{TEXTVIEW("Camera")});
-	Camera->SetupAttachment(GetMesh());
+	Camera->SetupAttachment(GetMesh()); 
 	Camera->SetRelativeRotation_Direct({0.0f, 90.0f, 0.0f});
 
-	// AbilitySystemComponent creation removed - now managed by PlayerState
-
-	// Initialize the SelectionDecal component
 	SelectionDecalComponent = CreateDefaultSubobject<UDecalComponent>(TEXT("SelectionDecal"));
-	SelectionDecalComponent->SetupAttachment(GetRootComponent()); // Attach to root component
-	SelectionDecalComponent->SetRelativeRotation(FRotator(90.0f, 0.0f, 0.0f)); // Point decal downwards
-	SelectionDecalComponent->DecalSize = DefaultSelectionDecalSize; // Set default size
-	SelectionDecalComponent->SetVisibility(false); // Initially hidden
+	SelectionDecalComponent->SetupAttachment(GetRootComponent());
+	SelectionDecalComponent->SetRelativeRotation(FRotator(90.0f, 0.0f, 0.0f));
+	SelectionDecalComponent->DecalSize = DefaultSelectionDecalSize;
+	SelectionDecalComponent->SetVisibility(false);
 }
 
 void AAlsCharacterExample::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Initialize selection decal material if available
 	if (SelectionDecalComponent && DefaultSelectionDecalMaterial)
 	{
 		SelectionDecalComponent->SetDecalMaterial(DefaultSelectionDecalMaterial);
-		// Create a Dynamic Material Instance to modify parameters at runtime
 		UMaterialInstanceDynamic* DecalMID = SelectionDecalComponent->CreateDynamicMaterialInstance();
 		if (DecalMID)
 		{
@@ -73,7 +65,6 @@ void AAlsCharacterExample::NotifyControllerChanged()
 		{
 			FModifyContextOptions Options;
 			Options.bNotifyUserSettings = true;
-
 			InputSubsystem->AddMappingContext(InputMappingContext, 0, Options);
 		}
 	}
@@ -83,325 +74,50 @@ void AAlsCharacterExample::NotifyControllerChanged()
 
 void AAlsCharacterExample::CalcCamera(const float DeltaTime, FMinimalViewInfo& ViewInfo)
 {
-	if (Camera->IsActive())
+	if (Camera && Camera->IsActive()) 
 	{
 		Camera->GetViewInfo(ViewInfo);
 		return;
 	}
-
 	Super::CalcCamera(DeltaTime, ViewInfo);
 }
 
 void AAlsCharacterExample::SetupPlayerInputComponent(UInputComponent* Input)
 {
 	Super::SetupPlayerInputComponent(Input);
-
 	auto* EnhancedInput{Cast<UEnhancedInputComponent>(Input)};
 	if (IsValid(EnhancedInput))
 	{
-		EnhancedInput->BindAction(LookMouseAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnLookMouse);
-		EnhancedInput->BindAction(LookMouseAction, ETriggerEvent::Canceled, this, &ThisClass::Input_OnLookMouse);
-		EnhancedInput->BindAction(LookAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnLook);
-		EnhancedInput->BindAction(LookAction, ETriggerEvent::Canceled, this, &ThisClass::Input_OnLook);
-		EnhancedInput->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnMove);
-		EnhancedInput->BindAction(MoveAction, ETriggerEvent::Canceled, this, &ThisClass::Input_OnMove);
-		EnhancedInput->BindAction(SprintAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnSprint);
-		EnhancedInput->BindAction(SprintAction, ETriggerEvent::Canceled, this, &ThisClass::Input_OnSprint);
-		EnhancedInput->BindAction(WalkAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnWalk);
-		EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnCrouch);
-		EnhancedInput->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnJump);
-		EnhancedInput->BindAction(JumpAction, ETriggerEvent::Canceled, this, &ThisClass::Input_OnJump);
-		EnhancedInput->BindAction(AimAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnAim);
-		EnhancedInput->BindAction(AimAction, ETriggerEvent::Canceled, this, &ThisClass::Input_OnAim);
-		EnhancedInput->BindAction(RagdollAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnRagdoll);
-		EnhancedInput->BindAction(RollAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnRoll);
-		EnhancedInput->BindAction(RotationModeAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnRotationMode);
-		EnhancedInput->BindAction(ViewModeAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnViewMode);
-		EnhancedInput->BindAction(SwitchShoulderAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnSwitchShoulder);
-		
-		// TopDown camera input bindings
-		if (IsValid(TopDownCameraZoomAction))
-		{
-			EnhancedInput->BindAction(TopDownCameraZoomAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnTopDownCameraZoom);
-		}
-		
-		if (IsValid(TopDownCameraRotateAction))
-		{
-			EnhancedInput->BindAction(TopDownCameraRotateAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnTopDownCameraRotate);
-		}
+		if (IsValid(LookMouseAction)) { EnhancedInput->BindAction(LookMouseAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnLookMouse); }
+		if (IsValid(LookAction)) { EnhancedInput->BindAction(LookAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnLook); }
+		if (IsValid(MoveAction)) { EnhancedInput->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnMove); EnhancedInput->BindAction(MoveAction, ETriggerEvent::Canceled, this, &ThisClass::Input_OnMove); }
+		if (IsValid(SprintAction)) { EnhancedInput->BindAction(SprintAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnSprint); EnhancedInput->BindAction(SprintAction, ETriggerEvent::Completed, this, &ThisClass::Input_OnSprint); }
+		if (IsValid(WalkAction)) { EnhancedInput->BindAction(WalkAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnWalk); }
+		if (IsValid(CrouchAction)) { EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnCrouch); }
+		if (IsValid(JumpAction)) { EnhancedInput->BindAction(JumpAction, ETriggerEvent::Started, this, &ThisClass::Input_OnJump); EnhancedInput->BindAction(JumpAction, ETriggerEvent::Completed, this, &ThisClass::Input_OnJump); } // Changed Triggered to Started for Jump
+		if (IsValid(AimAction)) { EnhancedInput->BindAction(AimAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnAim); EnhancedInput->BindAction(AimAction, ETriggerEvent::Completed, this, &ThisClass::Input_OnAim); }
+		if (IsValid(RagdollAction)) { EnhancedInput->BindAction(RagdollAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnRagdoll); }
+		if (IsValid(RollAction)) { EnhancedInput->BindAction(RollAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnRoll); }
+		if (IsValid(RotationModeAction)) { EnhancedInput->BindAction(RotationModeAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnRotationMode); }
+		if (IsValid(ViewModeAction)) { EnhancedInput->BindAction(ViewModeAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnViewMode); }
+		if (IsValid(SwitchShoulderAction)) { EnhancedInput->BindAction(SwitchShoulderAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnSwitchShoulder); }
+		if (IsValid(TopDownCameraZoomAction)) { EnhancedInput->BindAction(TopDownCameraZoomAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnTopDownCameraZoom); }
+		if (IsValid(TopDownCameraRotateAction)) { EnhancedInput->BindAction(TopDownCameraRotateAction, ETriggerEvent::Triggered, this, &ThisClass::Input_OnTopDownCameraRotate); }
 	}
 }
-
-void AAlsCharacterExample::Input_OnLookMouse(const FInputActionValue& ActionValue)
-{
-	const FVector2f Value{ActionValue.Get<FVector2D>()};
-
-	AddControllerPitchInput(Value.Y * LookUpMouseSensitivity);
-	AddControllerYawInput(Value.X * LookRightMouseSensitivity);
-}
-
-void AAlsCharacterExample::Input_OnLook(const FInputActionValue& ActionValue)
-{
-	const FVector2f Value{ActionValue.Get<FVector2D>()};
-
-	AddControllerPitchInput(Value.Y * LookUpRate);
-	AddControllerYawInput(Value.X * LookRightRate);
-}
-
-void AAlsCharacterExample::Input_OnMove(const FInputActionValue& ActionValue)
-{
-	const auto Value{UAlsVector::ClampMagnitude012D(ActionValue.Get<FVector2D>())};
-
-	// Check if we're in TopDown view mode
-	if (GetViewMode() == AlsViewModeTags::TopDown)
-	{
-		// SCREEN-RELATIVE INPUT for Top-Down View
-		// For TopDown view, we'll use the actual camera rotation for screen-relative movement
-		// This way we don't need to rely on the TopDownCameraCurrentYawAngle property
-		auto ViewRotation{GetViewState().Rotation};
-
-		if (IsValid(GetController()))
-		{
-			// Get the actual camera rotation
-			FVector ViewLocation;
-			GetController()->GetPlayerViewPoint(ViewLocation, ViewRotation);
-		}
-
-		// Extract the camera's yaw to determine screen-relative directions
-		const float CameraYaw = ViewRotation.Yaw;
-
-		// Calculate world directions based on camera yaw
-		// Screen Top (Input Y+) corresponds to the camera's "forward" on the XY plane
-		// Screen Right (Input X+) corresponds to the camera's "right" on the XY plane
-		const FVector ScreenTopWorldDirection = UAlsVector::AngleToDirectionXY(UE_REAL_TO_FLOAT(CameraYaw));
-		const FVector ScreenRightWorldDirection = UAlsVector::AngleToDirectionXY(UE_REAL_TO_FLOAT(CameraYaw + 90.0f)); // Perpendicular
-
-		// Apply input, Y-axis of input for screen top/bottom, X-axis for screen left/right
-		AddMovementInput(ScreenTopWorldDirection * Value.Y);
-		AddMovementInput(ScreenRightWorldDirection * Value.X);
-	}
-	else
-	{
-		// Original ALS logic for First/Third person
-		auto ViewRotation{GetViewState().Rotation};
-
-		if (IsValid(GetController()))
-		{
-			// Use exact camera rotation instead of target rotation whenever possible.
-			FVector ViewLocation;
-			GetController()->GetPlayerViewPoint(ViewLocation, ViewRotation);
-		}
-
-		const auto ForwardDirection{UAlsVector::AngleToDirectionXY(UE_REAL_TO_FLOAT(ViewRotation.Yaw))};
-		const auto RightDirection{UAlsVector::PerpendicularCounterClockwiseXY(ForwardDirection)};
-
-		AddMovementInput(ForwardDirection * Value.Y + RightDirection * Value.X);
-	}
-}
-
-void AAlsCharacterExample::Input_OnSprint(const FInputActionValue& ActionValue)
-{
-	SetDesiredGait(ActionValue.Get<bool>() ? AlsGaitTags::Sprinting : AlsGaitTags::Running);
-}
-
-void AAlsCharacterExample::Input_OnWalk()
-{
-	if (GetDesiredGait() == AlsGaitTags::Walking)
-	{
-		SetDesiredGait(AlsGaitTags::Running);
-	}
-	else if (GetDesiredGait() == AlsGaitTags::Running)
-	{
-		SetDesiredGait(AlsGaitTags::Walking);
-	}
-}
-
-void AAlsCharacterExample::Input_OnCrouch()
-{
-	if (GetDesiredStance() == AlsStanceTags::Standing)
-	{
-		SetDesiredStance(AlsStanceTags::Crouching);
-	}
-	else if (GetDesiredStance() == AlsStanceTags::Crouching)
-	{
-		SetDesiredStance(AlsStanceTags::Standing);
-	}
-}
-
-void AAlsCharacterExample::Input_OnJump(const FInputActionValue& ActionValue)
-{
-	if (ActionValue.Get<bool>())
-	{
-		if (StopRagdolling())
-		{
-			return;
-		}
-
-		if (StartMantlingGrounded())
-		{
-			return;
-		}
-
-		if (GetStance() == AlsStanceTags::Crouching)
-		{
-			SetDesiredStance(AlsStanceTags::Standing);
-			return;
-		}
-
-		Jump();
-	}
-	else
-	{
-		StopJumping();
-	}
-}
-
-void AAlsCharacterExample::Input_OnAim(const FInputActionValue& ActionValue)
-{
-	SetDesiredAiming(ActionValue.Get<bool>());
-}
-
-void AAlsCharacterExample::Input_OnRagdoll()
-{
-	if (!StopRagdolling())
-	{
-		StartRagdolling();
-	}
-}
-
-void AAlsCharacterExample::Input_OnRoll()
-{
-	static constexpr auto PlayRate{1.3f};
-
-	StartRolling(PlayRate);
-}
-
-void AAlsCharacterExample::Input_OnRotationMode()
-{
-	SetDesiredRotationMode(GetDesiredRotationMode() == AlsRotationModeTags::VelocityDirection
-		                       ? AlsRotationModeTags::ViewDirection
-		                       : AlsRotationModeTags::VelocityDirection);
-}
-
-void AAlsCharacterExample::Input_OnViewMode()
-{
-	// Cycle through the three view modes: ThirdPerson -> FirstPerson -> TopDown -> ThirdPerson
-	if (GetViewMode() == AlsViewModeTags::ThirdPerson)
-	{
-		SetViewMode(AlsViewModeTags::FirstPerson);
-	}
-	else if (GetViewMode() == AlsViewModeTags::FirstPerson)
-	{
-		SetViewMode(AlsViewModeTags::TopDown);
-		
-		// Initialize TopDown camera distance if needed
-		if (IsValid(Camera) && FMath::IsNearlyZero(Camera->GetTopDownCurrentDistance()))
-		{
-			Camera->SetTopDownCameraDistance(Camera->GetCameraSettings()->TopDown.DefaultDistance);
-		}
-	}
-	else
-	{
-		SetViewMode(AlsViewModeTags::ThirdPerson);
-	}
-}
-
-// ReSharper disable once CppMemberFunctionMayBeConst
-void AAlsCharacterExample::Input_OnSwitchShoulder()
-{
-	Camera->SetRightShoulder(!Camera->IsRightShoulder());
-}
-
-void AAlsCharacterExample::DisplayDebug(UCanvas* Canvas, const FDebugDisplayInfo& DisplayInfo, float& Unused, float& VerticalLocation)
-{
-	if (Camera->IsActive())
-	{
-		Camera->DisplayDebug(Canvas, DisplayInfo, VerticalLocation);
-	}
-
-	Super::DisplayDebug(Canvas, DisplayInfo, Unused, VerticalLocation);
-}
-
-void AAlsCharacterExample::Input_OnTopDownCameraZoom(const FInputActionValue& ActionValue)
-{
-	if (GetViewMode() == AlsViewModeTags::TopDown && IsValid(Camera))
-	{
-		// Get the zoom value from the input action
-		const float ZoomValue = ActionValue.Get<float>();
-		const auto* CameraSettings = Camera->GetCameraSettings();
-		
-		if (IsValid(CameraSettings))
-		{
-			// Apply zoom to the camera - negative value zooms in, positive zooms out
-			// Use the ZoomInputSensitivity from settings for proper configuration
-			Camera->AddTopDownCameraZoom(-ZoomValue * CameraSettings->TopDown.ZoomInputSensitivity);
-		}
-	}
-}
-
-void AAlsCharacterExample::Input_OnTopDownCameraRotate(const FInputActionValue& ActionValue)
-{
-	if (GetViewMode() == AlsViewModeTags::TopDown && IsValid(Camera))
-	{
-		// Get the rotation value from the input action
-		const FVector2f Value{ActionValue.Get<FVector2D>()};
-		const auto* CameraSettings = Camera->GetCameraSettings();
-		
-		if (IsValid(CameraSettings))
-		{
-			// X-axis controls camera yaw (rotation around the vertical axis)
-			Camera->AddTopDownCameraYaw(Value.X * CameraSettings->TopDown.YawInputSensitivity);
-			
-			// Y-axis controls camera pitch (up/down angle)
-			Camera->AddTopDownCameraPitch(Value.Y * CameraSettings->TopDown.PitchInputSensitivity);
-		}
-	}
-}
-
-// --- GAS INTERFACE AND INITIALIZATION METHODS ---
-
-UAbilitySystemComponent* AAlsCharacterExample::GetAbilitySystemComponent() const
-{
-	AMyPlayerState* PS = GetPlayerState<AMyPlayerState>();
-	if (PS)
-	{
-		return PS->GetAbilitySystemComponent();
-	}
-	return nullptr;
-}
-
-void AAlsCharacterExample::PossessedBy(AController* NewController)
-{
-	Super::PossessedBy(NewController); // Call parent first!
-
-	// SERVER-SIDE ASC Initialization on PlayerState
-	AMyPlayerState* PS = GetPlayerState<AMyPlayerState>();
-	if (PS)
-	{
-		UAbilitySystemComponent* ASC = PS->GetAbilitySystemComponent();
-		if (ASC) // Check if ASC is valid on PlayerState
-		{
-			// Initialize the AbilitySystemComponent with the PlayerState as Owner and this Character as Avatar
-			ASC->InitAbilityActorInfo(PS, this);
-		}
-	}
-}
-
-void AAlsCharacterExample::OnRep_PlayerState()
-{
-	Super::OnRep_PlayerState(); // Call parent!
-
-	// CLIENT-SIDE ASC Initialization on PlayerState
-	AMyPlayerState* PS = GetPlayerState<AMyPlayerState>();
-	if (PS)
-	{
-		UAbilitySystemComponent* ASC = PS->GetAbilitySystemComponent();
-		if (ASC) // Check if ASC is valid on PlayerState
-		{
-			// Initialize the AbilitySystemComponent with the PlayerState as Owner and this Character as Avatar
-			ASC->InitAbilityActorInfo(PS, this);
-		}
-	}
-}
-
-// InitializeDefaultAbilitiesAndEffects method removed - functionality moved to PlayerState
+void AAlsCharacterExample::Input_OnLookMouse(const FInputActionValue& ActionValue){ const FVector2f Value{ActionValue.Get<FVector2D>()}; AddControllerPitchInput(Value.Y * LookUpMouseSensitivity); AddControllerYawInput(Value.X * LookRightMouseSensitivity); }
+void AAlsCharacterExample::Input_OnLook(const FInputActionValue& ActionValue){ const FVector2f Value{ActionValue.Get<FVector2D>()}; AddControllerPitchInput(Value.Y * LookUpRate); AddControllerYawInput(Value.X * LookRightRate); }
+void AAlsCharacterExample::Input_OnMove(const FInputActionValue& ActionValue){ const auto Value{UAlsVector::ClampMagnitude012D(ActionValue.Get<FVector2D>())}; if (GetViewMode() == AlsViewModeTags::TopDown) { auto ViewRotation{GetViewState().Rotation}; if (IsValid(GetController())) { FVector ViewLocation; GetController()->GetPlayerViewPoint(ViewLocation, ViewRotation); } const float CameraYaw = ViewRotation.Yaw; const FVector ScreenTopWorldDirection = UAlsVector::AngleToDirectionXY(UE_REAL_TO_FLOAT(CameraYaw)); const FVector ScreenRightWorldDirection = UAlsVector::AngleToDirectionXY(UE_REAL_TO_FLOAT(CameraYaw + 90.0f)); AddMovementInput(ScreenTopWorldDirection * Value.Y); AddMovementInput(ScreenRightWorldDirection * Value.X); } else { auto ViewRotation{GetViewState().Rotation}; if (IsValid(GetController())) { FVector ViewLocation; GetController()->GetPlayerViewPoint(ViewLocation, ViewRotation); } const auto ForwardDirection{UAlsVector::AngleToDirectionXY(UE_REAL_TO_FLOAT(ViewRotation.Yaw))}; const auto RightDirection{UAlsVector::PerpendicularCounterClockwiseXY(ForwardDirection)}; AddMovementInput(ForwardDirection * Value.Y + RightDirection * Value.X); } }
+void AAlsCharacterExample::Input_OnSprint(const FInputActionValue& ActionValue){ SetDesiredGait(ActionValue.Get<bool>() ? AlsGaitTags::Sprinting : AlsGaitTags::Running); }
+void AAlsCharacterExample::Input_OnWalk(){ if (GetDesiredGait() == AlsGaitTags::Walking) { SetDesiredGait(AlsGaitTags::Running); } else if (GetDesiredGait() == AlsGaitTags::Running) { SetDesiredGait(AlsGaitTags::Walking); } }
+void AAlsCharacterExample::Input_OnCrouch(){ if (GetDesiredStance() == AlsStanceTags::Standing) { SetDesiredStance(AlsStanceTags::Crouching); } else if (GetDesiredStance() == AlsStanceTags::Crouching) { SetDesiredStance(AlsStanceTags::Standing); } }
+void AAlsCharacterExample::Input_OnJump(const FInputActionValue& ActionValue){ if (ActionValue.Get<bool>()) { if (StopRagdolling()) { return; } if (StartMantlingGrounded()) { return; } if (GetStance() == AlsStanceTags::Crouching) { SetDesiredStance(AlsStanceTags::Standing); return; } Jump(); } else { StopJumping(); } }
+void AAlsCharacterExample::Input_OnAim(const FInputActionValue& ActionValue){ SetDesiredAiming(ActionValue.Get<bool>()); }
+void AAlsCharacterExample::Input_OnRagdoll(){ if (!StopRagdolling()) { StartRagdolling(); } }
+void AAlsCharacterExample::Input_OnRoll(){ static constexpr auto PlayRate{1.3f}; StartRolling(PlayRate); }
+void AAlsCharacterExample::Input_OnRotationMode(){ SetDesiredRotationMode(GetDesiredRotationMode() == AlsRotationModeTags::VelocityDirection ? AlsRotationModeTags::ViewDirection : AlsRotationModeTags::VelocityDirection); }
+void AAlsCharacterExample::Input_OnViewMode(){ if (GetViewMode() == AlsViewModeTags::ThirdPerson) { SetViewMode(AlsViewModeTags::FirstPerson); } else if (GetViewMode() == AlsViewModeTags::FirstPerson) { SetViewMode(AlsViewModeTags::TopDown); if (Camera && Camera->GetCameraSettings() && FMath::IsNearlyZero(Camera->GetTopDownCurrentDistance())) { Camera->SetTopDownCameraDistance(Camera->GetCameraSettings()->TopDown.DefaultDistance); } } else { SetViewMode(AlsViewModeTags::ThirdPerson); } }
+void AAlsCharacterExample::Input_OnSwitchShoulder(){ if(Camera) {Camera->SetRightShoulder(!Camera->IsRightShoulder());} }
+void AAlsCharacterExample::DisplayDebug(UCanvas* Canvas, const FDebugDisplayInfo& DisplayInfo, float& Unused, float& VerticalLocation){ if (Camera && Camera->IsActive()) { Camera->DisplayDebug(Canvas, DisplayInfo, VerticalLocation); } Super::DisplayDebug(Canvas, DisplayInfo, Unused, VerticalLocation); }
+void AAlsCharacterExample::Input_OnTopDownCameraZoom(const FInputActionValue& ActionValue){ if (GetViewMode() == AlsViewModeTags::TopDown && Camera) { const float ZoomValue = ActionValue.Get<float>(); const auto* CameraSettings = Camera->GetCameraSettings(); if (CameraSettings) { Camera->AddTopDownCameraZoom(-ZoomValue * CameraSettings->TopDown.ZoomInputSensitivity); } } }
+void AAlsCharacterExample::Input_OnTopDownCameraRotate(const FInputActionValue& ActionValue){ if (GetViewMode() == AlsViewModeTags::TopDown && Camera) { const FVector2f Value{ActionValue.Get<FVector2D>()}; const auto* CameraSettings = Camera->GetCameraSettings(); if (CameraSettings) { Camera->AddTopDownCameraYaw(Value.X * CameraSettings->TopDown.YawInputSensitivity); Camera->AddTopDownCameraPitch(Value.Y * CameraSettings->TopDown.PitchInputSensitivity); } } }

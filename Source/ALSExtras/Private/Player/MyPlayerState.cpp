@@ -1,28 +1,25 @@
 // MyPlayerState.cpp
-#include "../../Public/Player/MyPlayerState.h"
+#include "Player/MyPlayerState.h" // Adjust to your Public include path e.g., "Public/Player/MyPlayerState.h"
 #include "AbilitySystemComponent.h"
-#include "Abilities/GameplayAbility.h"    // For UGameplayAbility
-#include "GameplayEffect.h"     // For UGameplayEffect
-#include "Net/UnrealNetwork.h"  // For DOREPLIFETIME if you add replicated props later
-// #include "MyAttributeSet.h" // If you have a custom attribute set, include its .h
-// Removed AlsCharacterExample.h include to prevent circular dependency
-// Forward declare instead if needed
-class AAlsCharacterExample;
+#include "Abilities/GameplayAbility.h"    
+#include "GameplayEffect.h"     
+#include "AbilitySystem/Attributes/MyAttributeSet_CoreVitality.h" // Include your AttributeSet
+// #include "Net/UnrealNetwork.h" // Only if you add custom replicated properties to PlayerState itself
+
+// Forward declare AAlsCharacterExample if needed by other functions, but not directly for this setup
+// class AAlsCharacterExample; 
 
 AMyPlayerState::AMyPlayerState()
 {
-    // Create the Ability System Component.
     AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
     AbilitySystemComponent->SetIsReplicated(true);
-    AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed); // Or Minimal, depending on your needs
+    AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
 
-    // Create AttributeSet if you have one
-    // AttributeSet = CreateDefaultSubobject<UMyAttributeSet>(TEXT("AttributeSet"));
-
-    // PlayerStates are replicated by default.
-    // NetUpdateFrequency is important for how often PlayerState replicates.
-    // For GAS, attributes are usually replicated via their own OnRep functions or through GameplayEffects.
-    // Default is fine for most cases.
+    // CoreVitalitySet will be created and assigned later
+    CoreVitalitySet = nullptr;
+    bHasInitializedDefaultAttributesAndAbilities = false;
+    
+    // PlayerStates are replicated by default. NetUpdateFrequency is usually fine.
 }
 
 UAbilitySystemComponent* AMyPlayerState::GetAbilitySystemComponent() const
@@ -34,52 +31,87 @@ void AMyPlayerState::BeginPlay()
 {
     Super::BeginPlay();
 
-    // Server grants abilities and applies startup effects.
-    // This can also be called from the Character's PossessedBy if you want to ensure the Pawn (AvatarActor) is valid
-    // at the time of initialization, but generally, PlayerState's BeginPlay is a good spot for player-wide abilities.
-    if (GetNetMode() != NM_Client && AbilitySystemComponent && !bAbilitiesInitialized)
+    // Server is responsible for initializing attributes, abilities, and effects.
+    // The Character's PossessedBy/OnRep_PlayerState will call InitAbilityActorInfo on our ASC.
+    // We can initialize player-wide things here.
+    if (GetLocalRole() == ROLE_Authority && AbilitySystemComponent && !bHasInitializedDefaultAttributesAndAbilities)
     {
-        // The PlayerState itself is the OwnerActor.
-        // The AvatarActor will be set by the Character in PossessedBy/OnRep_PlayerState.
-        // For now, we can initialize with the PlayerState as both if no pawn is yet available,
-        // but the Character will update the AvatarActor.
-        // Or, we can defer InitializeDefaultAbilitiesAndEffects until the character calls InitAbilityActorInfo.
-        // For simplicity here, let's assume we grant player-wide abilities that don't immediately need an avatar.
-        // The Character's InitAbilityActorInfo call will be crucial.
+        // Note: InitAbilityActorInfo (setting the AvatarActor) will be called by the AMyPlayerCharacterBase
+        // when it is possessed or its PlayerState replicates.
+        // For now, the OwnerActor is this PlayerState.
+        if (!AbilitySystemComponent->AbilityActorInfo.IsValid() || AbilitySystemComponent->AbilityActorInfo->OwnerActor != this)
+        {
+             AbilitySystemComponent->InitAbilityActorInfo(this, nullptr); // Owner is self, Avatar initially null
+        }
 
-        // We don't call InitAbilityActorInfo here because the Avatar (Pawn) might not be set yet.
-        // The Character will call it.
-        // We can, however, grant abilities that are inherent to the player.
-        InitializeDefaultAbilitiesAndEffects();
+        InitializeDefaultAttributesAbilitiesAndEffects();
     }
 }
 
-void AMyPlayerState::InitializeDefaultAbilitiesAndEffects()
+void AMyPlayerState::InitializeDefaultAttributesAbilitiesAndEffects()
 {
-    if (!AbilitySystemComponent || bAbilitiesInitialized || GetLocalRole() != ROLE_Authority)
+    if (!AbilitySystemComponent || bHasInitializedDefaultAttributesAndAbilities || GetLocalRole() != ROLE_Authority)
     {
         return;
     }
 
-    // Grant Default Abilities
-    for (TSubclassOf<UGameplayAbility>& AbilityClass : DefaultAbilities)
+    // --- Grant AttributeSets ---
+    if (!CoreVitalitySet)
+    {
+        const UMyAttributeSet_CoreVitality* ConstExistingSet = AbilitySystemComponent->GetSet<UMyAttributeSet_CoreVitality>();
+        UMyAttributeSet_CoreVitality* ExistingSet = const_cast<UMyAttributeSet_CoreVitality*>(ConstExistingSet);
+
+        if (ExistingSet)
+        {
+            CoreVitalitySet = ExistingSet;
+            UE_LOG(LogTemp, Log, TEXT("AMyPlayerState::InitializeDefault: Found existing CoreVitalitySet for %s"), *GetName());
+        }
+        else
+        {
+            UMyAttributeSet_CoreVitality* NewSet = NewObject<UMyAttributeSet_CoreVitality>(this, TEXT("CoreVitalitySet_Player"));
+            CoreVitalitySet = NewSet;
+            AbilitySystemComponent->AddAttributeSetSubobject(NewSet);
+            UE_LOG(LogTemp, Log, TEXT("AMyPlayerState::InitializeDefault: Created and granted CoreVitalitySet to %s"), *GetName());
+        }
+    }
+    // Grant other attribute sets here if the PlayerState should own them
+
+    // --- Apply Core Vitality Initialization Effect ---
+    if (IsValid(DefaultCoreVitalityEffect))
+    {
+        FGameplayEffectContextHandle ContextHandle = AbilitySystemComponent->MakeEffectContext();
+        ContextHandle.AddSourceObject(this); 
+        FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(DefaultCoreVitalityEffect, 1, ContextHandle);
+        if (SpecHandle.IsValid())
+        {
+            AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+            UE_LOG(LogTemp, Log, TEXT("AMyPlayerState::InitializeDefault: Applied DefaultCoreVitalityEffect for %s"), *GetName());
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("AMyPlayerState::InitializeDefault: DefaultCoreVitalityEffect is not set for %s! Player core attributes might not be initialized."), *GetName());
+    }
+
+    // --- Grant Default Abilities ---
+    for (const TSubclassOf<UGameplayAbility>& AbilityClass : DefaultAbilities)
     {
         if (AbilityClass)
         {
-            // SourceObject is 'this' (the PlayerState)
-            FGameplayAbilitySpec AbilitySpec(AbilityClass, 1, INDEX_NONE, this);
+            FGameplayAbilitySpec AbilitySpec(AbilityClass, 1, INDEX_NONE, this); // SourceObject is 'this' PlayerState
             AbilitySystemComponent->GiveAbility(AbilitySpec);
         }
     }
+    UE_LOG(LogTemp, Log, TEXT("AMyPlayerState::InitializeDefault: Granted %d default abilities for %s"), DefaultAbilities.Num(), *GetName());
 
-    // Apply Default Startup Effects
-    for (TSubclassOf<UGameplayEffect>& EffectClass : DefaultStartupEffects)
+
+    // --- Apply Other Default Passive Startup Effects ---
+    for (const TSubclassOf<UGameplayEffect>& EffectClass : DefaultPassiveStartupEffects)
     {
         if (EffectClass)
         {
             FGameplayEffectContextHandle ContextHandle = AbilitySystemComponent->MakeEffectContext();
-            ContextHandle.AddSourceObject(this); // The PlayerState is the source of these startup effects
-
+            ContextHandle.AddSourceObject(this);
             FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(EffectClass, 1, ContextHandle);
             if (SpecHandle.IsValid())
             {
@@ -87,5 +119,7 @@ void AMyPlayerState::InitializeDefaultAbilitiesAndEffects()
             }
         }
     }
-    bAbilitiesInitialized = true;
+    UE_LOG(LogTemp, Log, TEXT("AMyPlayerState::InitializeDefault: Applied %d passive startup effects for %s"), DefaultPassiveStartupEffects.Num(), *GetName());
+
+    bHasInitializedDefaultAttributesAndAbilities = true;
 }
