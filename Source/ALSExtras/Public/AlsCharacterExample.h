@@ -1,21 +1,17 @@
 #pragma once
 
 #include "AlsCharacter.h"
-#include "AbilitySystemInterface.h" // REQUIRED for GAS
-#include "AbilitySystemComponent.h" // REQUIRED for UAbilitySystemComponent
-#include "Abilities/GameplayAbilityTypes.h" // REQUIRED for FGameplayAbilitySpec
+// #include "AbilitySystemInterface.h" // REMOVE - No longer inherits from IAbilitySystemInterface
 #include "AlsCharacterExample.generated.h"
 
 struct FInputActionValue;
 class UAlsCameraComponent;
 class UInputMappingContext;
 class UInputAction;
-class UAbilitySystemComponent;
-class UGameplayAbility;
-class UGameplayEffect;
+class UAbilitySystemComponent; // Forward declaration is still needed
 
-UCLASS(AutoExpandCategories = ("Settings|Als Character Example", "Abilities|Als Character Example"))
-class ALSEXTRAS_API AAlsCharacterExample : public AAlsCharacter, public IAbilitySystemInterface
+UCLASS(AutoExpandCategories = ("Settings|Als Character Example"))
+class ALSEXTRAS_API AAlsCharacterExample : public AAlsCharacter
 {
 	GENERATED_BODY()
 
@@ -73,19 +69,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Settings|Als Character Example", Meta = (DisplayThumbnail = false))
 	TObjectPtr<UInputAction> TopDownCameraRotateAction;
 
-	// --- GAS RELATED PROPERTIES ---
-
-	UPROPERTY(VisibleDefaultsOnly, BlueprintReadOnly, Category = "Abilities|Als Character Example", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
-
-	/** List of abilities to grant to this character on startup. Configure in derived Blueprints. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Abilities|Als Character Example")
-	TArray<TSubclassOf<UGameplayAbility>> DefaultAbilities;
-
-	/** List of GameplayEffects to apply to this character on startup (e.g., default attributes). Configure in derived Blueprints. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Abilities|Als Character Example")
-	TArray<TSubclassOf<UGameplayEffect>> DefaultStartupEffects;
-
+	// --- GAS RELATED PROPERTIES REMOVED ---
+	// (Now managed by the PlayerState)
 	// --- END GAS RELATED PROPERTIES ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Als Character Example", Meta = (ClampMin = 0, ForceUnits = "x"))
@@ -153,16 +138,13 @@ private:
 	// Debug
 
 public:
-	//~ Begin IAbilitySystemInterface
-	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
-	//~ End IAbilitySystemInterface
+	/** Retrieve the AbilitySystemComponent from the PlayerState. Can be nullptr. */
+	UFUNCTION(BlueprintCallable, Category = "Abilities")
+	UAbilitySystemComponent* GetAbilitySystemComponent() const;
 
 	// GAS initialization functions
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override; // For client ASC initialization
-
-	// Helper to grant startup abilities and effects
-	virtual void InitializeDefaultAbilitiesAndEffects();
 
 	virtual void DisplayDebug(UCanvas* Canvas, const FDebugDisplayInfo& DisplayInfo, float& Unused, float& VerticalLocation) override;
 

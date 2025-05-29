@@ -11,7 +11,8 @@
 
 // GAS-related includes - using proper module paths for UE5.5
 #include "AbilitySystemComponent.h"
-#include "GameplayAbilitySpec.h"
+//#include "GameFramework/PlayerState.h"
+#include "ALSExtras\Public\Player\MyPlayerState.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(AlsCharacterExample)
 
@@ -21,10 +22,7 @@ AAlsCharacterExample::AAlsCharacterExample()
 	Camera->SetupAttachment(GetMesh());
 	Camera->SetRelativeRotation_Direct({0.0f, 90.0f, 0.0f});
 
-	// Create and configure the AbilitySystemComponent
-	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
-	AbilitySystemComponent->SetIsReplicated(true); // Enable replication for the ASC
-	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
+	// AbilitySystemComponent creation removed - now managed by PlayerState
 
 	// Initialize the SelectionDecal component
 	SelectionDecalComponent = CreateDefaultSubobject<UDecalComponent>(TEXT("SelectionDecal"));
@@ -364,17 +362,28 @@ void AAlsCharacterExample::Input_OnTopDownCameraRotate(const FInputActionValue& 
 
 UAbilitySystemComponent* AAlsCharacterExample::GetAbilitySystemComponent() const
 {
-	return AbilitySystemComponent;
+	AMyPlayerState* PS = GetPlayerState<AMyPlayerState>();
+	if (PS)
+	{
+		return PS->GetAbilitySystemComponent();
+	}
+	return nullptr;
 }
 
 void AAlsCharacterExample::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController); // Call parent first!
 
-	if (AbilitySystemComponent)
+	// SERVER-SIDE ASC Initialization on PlayerState
+	AMyPlayerState* PS = GetPlayerState<AMyPlayerState>();
+	if (PS)
 	{
-		AbilitySystemComponent->InitAbilityActorInfo(this, this); // 'this' is both Owner and Avatar
-		InitializeDefaultAbilitiesAndEffects(); // Grant abilities/effects on server
+		UAbilitySystemComponent* ASC = PS->GetAbilitySystemComponent();
+		if (ASC) // Check if ASC is valid on PlayerState
+		{
+			// Initialize the AbilitySystemComponent with the PlayerState as Owner and this Character as Avatar
+			ASC->InitAbilityActorInfo(PS, this);
+		}
 	}
 }
 
@@ -382,47 +391,17 @@ void AAlsCharacterExample::OnRep_PlayerState()
 {
 	Super::OnRep_PlayerState(); // Call parent!
 
-	// Client-side ASC initialization
-	if (AbilitySystemComponent)
+	// CLIENT-SIDE ASC Initialization on PlayerState
+	AMyPlayerState* PS = GetPlayerState<AMyPlayerState>();
+	if (PS)
 	{
-		AbilitySystemComponent->InitAbilityActorInfo(this, this);
-		// Note: Do NOT call InitializeDefaultAbilitiesAndEffects() here on the client
-		// The server-granted ability specs will replicate to the client.
-	}
-}
-
-void AAlsCharacterExample::InitializeDefaultAbilitiesAndEffects()
-{
-	if (!AbilitySystemComponent || GetLocalRole() != ROLE_Authority) // Only Server should grant abilities
-	{
-		return;
-	}
-
-	// Grant Default Abilities
-	for (TSubclassOf<UGameplayAbility>& AbilityClass : DefaultAbilities)
-	{
-		if (AbilityClass)
+		UAbilitySystemComponent* ASC = PS->GetAbilitySystemComponent();
+		if (ASC) // Check if ASC is valid on PlayerState
 		{
-			// InputID of -1 (or INDEX_NONE) means this ability is not directly bound to an input from this spec.
-			// It will be activated via TryActivateAbilityByClass or by GameplayEvent.
-			FGameplayAbilitySpec AbilitySpec(AbilityClass, 1, INDEX_NONE, this);
-			AbilitySystemComponent->GiveAbility(AbilitySpec);
-		}
-	}
-
-	// Apply Default Startup Effects (e.g., to initialize attributes)
-	for (TSubclassOf<UGameplayEffect>& EffectClass : DefaultStartupEffects)
-	{
-		if (EffectClass)
-		{
-			FGameplayEffectContextHandle ContextHandle = AbilitySystemComponent->MakeEffectContext();
-			ContextHandle.AddSourceObject(this); // The character is the source of these startup effects
-
-			FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(EffectClass, 1, ContextHandle);
-			if (SpecHandle.IsValid())
-			{
-				AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
-			}
+			// Initialize the AbilitySystemComponent with the PlayerState as Owner and this Character as Avatar
+			ASC->InitAbilityActorInfo(PS, this);
 		}
 	}
 }
+
+// InitializeDefaultAbilitiesAndEffects method removed - functionality moved to PlayerState
